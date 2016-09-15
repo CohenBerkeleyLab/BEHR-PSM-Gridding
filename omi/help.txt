@@ -1,0 +1,11 @@
+This needs to be compiled and installed before using.
+Make sure that you have a Cython-compatible C compiler
+(like gcc) installed. Intel compilers may be tricky, but
+you can try them. Then run the following two commands:
+
+python setup.py build
+python setup.py install --user
+
+You should then be able to import the "omi" module as long
+as you are not in this directory, or probably any directory
+with a subdirectory named "omi."

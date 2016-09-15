@@ -3,3 +3,6 @@
 
 # The build folder results from compilation
 omi/build
+
+# This is a PyCharm folder
+.idea
