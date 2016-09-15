@@ -1,0 +1,5 @@
+# .pyc files are compiled as needed and should not be tracked
+**/*.pyc
+
+# The build folder results from compilation
+omi/build
