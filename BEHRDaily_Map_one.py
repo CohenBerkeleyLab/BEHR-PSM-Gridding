@@ -16,6 +16,7 @@ from datetime import date
 import calendar
 import h5py
 import numpy as np
+from scipy.spatial.qhull import QhullError
 from mpl_toolkits.basemap import Basemap
 import matplotlib.pyplot as plt
 import re
@@ -94,6 +95,8 @@ def preprocessing(gridding_method, Time, BEHRColumnAmountNO2Trop,
     mask |= vcdQualityFlags % 2 != 0
     mask |= XTrackQualityFlags != 0
     mask |= CloudRadianceFraction > 0.5
+    mask |= BEHRColumnAmountNO2Trop < 0
+    mask |= BEHRColumnAmountNO2Trop > 1e17
 
     # set invalid cloud cover to 100% -> smallest weight
     CloudRadianceFraction[CloudRadianceFraction.mask] = 1.0
@@ -263,15 +266,19 @@ def main(year, month, day, gridding_method, grid_name, List):
         # 8) Grid orbit using PSM or CVM:
         #print 'time: %s, orbit: %d' % (timestamp, orbit)
         if gridding_method == 'psm':
-            grid = omi.psm_grid(grid,
-                data['Longitude'], data['Latitude'],
-                data['TiledCornerLongitude'], data['TiledCornerLatitude'],
-                values, errors, stddev, weights, missing_values,
-                data['SpacecraftLongitude'], data['SpacecraftLatitude'],
-                data['SpacecraftAltitude'],
-                gamma[data['ColumnIndices']],
-                rho_est
-            )
+            try:
+                grid = omi.psm_grid(grid,
+                    data['Longitude'], data['Latitude'],
+                    data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+                    values, errors, stddev, weights, missing_values,
+                    data['SpacecraftLongitude'], data['SpacecraftLatitude'],
+                    data['SpacecraftAltitude'],
+                    gamma[data['ColumnIndices']],
+                    rho_est
+                )
+            except QhullError as e:
+                print "Cannot interpolate, QhullError: {0}".format(e.args[0])
+                continue
         else:
             grid = omi.cvm_grid(grid, data['FoV75CornerLongitude'], data['FoV75CornerLatitude'],
             values, errors, weights, missing_values)
