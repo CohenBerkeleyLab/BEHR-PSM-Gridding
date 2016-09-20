@@ -97,7 +97,7 @@ def average(collectinglist):
 
 
 
-def plotaverage(a, plottitel, region, List):
+def plotaverage(a, plottitle, region, List):
     #m = Basemap(llcrnrlat=40.0, urcrnrlat=55.0,llcrnrlon=-5.0, urcrnrlon=20.0, rsphere=(6378137.00,6356752.3142),resolution='i',projection='merc', lat_0=40.,lon_0=-20.,lat_ts=20.) #Deutschland
     #m = Basemap(llcrnrlat=40.0, urcrnrlat=55.0,llcrnrlon=-5.0, urcrnrlon=20.0,resolution='i') #Deutschland
     #m = Basemap(llcrnrlat=15.0, urcrnrlat=55.0,llcrnrlon=-125.0, urcrnrlon= -65.0,resolution='i') #North America
@@ -129,13 +129,13 @@ def plotaverage(a, plottitel, region, List):
         
         
     #plt.title('NO2-Konzentrationen Deutschland %s, %s' %(year, weekdays[0]))
-    plt.title(plottitel)
+    plt.title(plottitle)
     
-    savetitel  = "PSM_NASA_1_w_m"
+    savetitel  = plottitle.replace(", ", "_")
     #lastsequenzstart = files[0].rfind('/')
     #name = files[0][:lastsequenzstart+1]
-    plt.savefig('/usr/users/annette.schuett/Masterarbeit/Vergleich_Ber/%s' %(savetitel))#', format="png")#, bbox_inches= 'tight', pad_inches=0.5)
-    np.save('/usr/users/annette.schuett/Masterarbeit/Vergleich_Ber/%s.npy' %(savetitel), a)   #load with """ b = np.load('a.npy')  """
+    plt.savefig('%s' %(savetitel))#', format="png")#, bbox_inches= 'tight', pad_inches=0.5)
+    np.save('%s.npy' %(savetitel), a)   #load with """ b = np.load('a.npy')  """
 
 
     
@@ -154,8 +154,8 @@ year = 2015
 region = "North America"
 collectinglist = glob.glob('*america*.he5')
 average_hole = average(collectinglist)
-plottitel = "PSM, NASA, 1, w_m"
-plotaverage(average_hole, plottitel, region, List)    
+plottitle = "PSM, BEHR, w_g"
+plotaverage(average_hole, plottitle, region, List)
 
 
 

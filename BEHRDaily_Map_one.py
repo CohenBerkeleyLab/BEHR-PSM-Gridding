@@ -5,7 +5,7 @@ from datetime import datetime
 
 import numpy as np
 import numpy.ma as ma
-
+import os
 import glob
 #import sys
 #sys.path.append('/usr/users/annette.schuett/Masterarbeit/omi-master/omi')
@@ -140,7 +140,7 @@ def main(year, month, day, gridding_method, grid_name, List):
     #    can be helpful (see above).
     name2datasets = [NAME2DATASET_NO2, NAME2DATASET_PIXEL]
     
-    filename = '/usr/users/annette.schuett/Masterarbeit/Vergleich_Ber/HDF/BEHR-PSM/OMI_BEHR_v2-1B_%s%s%s.hdf'%(year, month, day)
+    filename = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM/OMI_BEHR_v2-1B_%s%s%s.hdf'%(year, month, day)
     print filename
     
     #f = readin(filename)  
@@ -300,16 +300,16 @@ if __name__ == '__main__':
 
     
     
-    files = glob.glob('/usr/users/annette.schuett/Masterarbeit/Vergleich_Ber/HDF/BEHR-PSM/OMI_BEHR_v2-1B_2015*.hdf')
+    file_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'
+    files = glob.glob(os.path.join(file_path,'OMI_BEHR_v2-1B_2015*.hdf'))
     np.sort(files)
     counter = 0
-    
-    
+
     for filename in files:
-        
-        year = filename[82:86]
-        month = filename[86:88]
-        day = filename[88:90]
+        m = re.search('\d\d\d\d\d\d\d\d',filename)
+        year = m.group(0)[0:4]
+        month = m.group(0)[4:6]
+        day = m.group(0)[6:8]
         main(year, month, day, 'psm', grid_name, List)
         counter +=1
         #if counter == 2:
