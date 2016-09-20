@@ -173,7 +173,7 @@ def main(year, month, day, gridding_method, grid_name, List):
                 
                 #fill_value = field.attrs.get('_FillValue', None)
                 fill_value = field.fillvalue
-                print name, fill_value
+                #print name, fill_value
                 #missing_value = field.attrs.get('MissingValue', None)
                 missing_value = fill_value
                 scale = field.attrs.get('ScaleFactor', 1.0)
@@ -202,7 +202,7 @@ def main(year, month, day, gridding_method, grid_name, List):
                     data[name] = data[name].T
                 
                     
-                print name, np.shape(data[name])    
+                #print name, np.shape(data[name])
                     
                     
                                 
@@ -220,13 +220,13 @@ def main(year, month, day, gridding_method, grid_name, List):
         data['SpacecraftLatitude'] = data['SpacecraftLatitude'].T[0]
         data['SpacecraftLongitude'] = data['SpacecraftLongitude'].T[0]
         data['Time'] = data['Time'].T[0]
-        print np.shape(data['TiledCornerLongitude']), np.shape(data['FoV75Area'])
-        for i in range(len(List)):
-            print List[i],':', np.shape(data[List[i]])
+        #print np.shape(data['TiledCornerLongitude']), np.shape(data['FoV75Area'])
+        #for i in range(len(List)):
+            #print List[i],':', np.shape(data[List[i]])
             
             
             
-        print ''    
+        #print ''
         
         
         # 5) Check for missing corner coordinates, i.e. the zoom product,

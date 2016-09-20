@@ -552,7 +552,7 @@ def remove_out_of_domain_data(data, domain, boundary):
     domain = domain[y_slice,x_slice]
 
     for name, field in data.items():
-        print (name)
+        #print (name)
         #pdb.set_trace()
 
         if field.ndim == 1:
