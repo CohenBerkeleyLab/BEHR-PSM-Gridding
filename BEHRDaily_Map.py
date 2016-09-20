@@ -9,6 +9,9 @@ import numpy.ma as ma
 import omi
 import glob
 import h5py
+from scipy.spatial.qhull import QhullError
+from mpl_toolkits.basemap import Basemap
+import matplotlib.pyplot as plt
 import re
 
 import pdb
@@ -78,6 +81,8 @@ def preprocessing(gridding_method, Time, BEHRColumnAmountNO2Trop,
     mask |= vcdQualityFlags % 2 != 0
     mask |= XTrackQualityFlags != 0
     mask |= CloudRadianceFraction > 0.5
+    mask |= BEHRColumnAmountNO2Trop < 0
+    mask |= BEHRColumnAmountNO2Trop > 1e17
 
     # set invalid cloud cover to 100% -> smallest weight
     CloudRadianceFraction[CloudRadianceFraction.mask] = 1.0
@@ -148,15 +153,19 @@ def do_gridding(all_data, gridding_method):
         # 8) Grid orbit using PSM or CVM:
         # print 'time: %s, orbit: %d' % (timestamp, orbit)
         if gridding_method == 'psm':
-            grid = omi.psm_grid(grid,
-                                data['Longitude'], data['Latitude'],
-                                data['TiledCornerLongitude'], data['TiledCornerLatitude'],
-                                values, errors, stddev, weights, missing_values,
-                                data['SpacecraftLongitude'], data['SpacecraftLatitude'],
-                                data['SpacecraftAltitude'],
-                                gamma[data['ColumnIndices']],
-                                rho_est
-                                )
+            try:
+                grid = omi.psm_grid(grid,
+                                    data['Longitude'], data['Latitude'],
+                                    data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+                                    values, errors, stddev, weights, missing_values,
+                                    data['SpacecraftLongitude'], data['SpacecraftLatitude'],
+                                    data['SpacecraftAltitude'],
+                                    gamma[data['ColumnIndices']],
+                                    rho_est
+                                    )
+            except QhullError as e:
+                print "Cannot interpolate, QhullError: {0}".format(e.args[0])
+                continue
         else:
             grid = omi.cvm_grid(grid, data['FoV75CornerLongitude'], data['FoV75CornerLatitude'],
                                 values, errors, weights, missing_values)
@@ -290,6 +299,7 @@ def do_gridding_by_files(year, month, day, gridding_method, file_path, req_field
         print ''
 
         all_data.append(data)
+
 
     grid = do_gridding(all_data, gridding_method)
 
