@@ -1,24 +1,16 @@
 # /usr/bin/env python
 # coding: utf-8
 
-from datetime import datetime
 
+import warnings
+import os
 import numpy as np
 import numpy.ma as ma
-
-import glob
-# import sys
-# sys.path.append('/usr/users/annette.schuett/Masterarbeit/omi-master/omi')
 import omi
-# import '/usr/users/annette.schuett/Masterarbeit/omi-master/omi'
 import glob
-from datetime import date
-import calendar
 import h5py
-import numpy as np
-from mpl_toolkits.basemap import Basemap
-import matplotlib.pyplot as plt
 import re
+
 import pdb
 
 
@@ -70,13 +62,6 @@ List = ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
 
 def readin(Filename):
     f = h5py.File(Filename, 'r')
-    dictionary = {}
-    # for name in f:
-    # str = 'array'
-    # str2 = str+'_%s' %np.str(name) # = np.get(name)
-    # print str2
-    # dictionary[str2] =  f.get(name)
-    # print name
     return f
 
 
