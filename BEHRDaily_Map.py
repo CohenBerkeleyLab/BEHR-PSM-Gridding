@@ -250,8 +250,8 @@ def do_gridding_by_files(year, month, day, gridding_method, file_path, req_field
 
                 # fill_value = field.attrs.get('_FillValue', None)
                 fill_value = field.fillvalue
-                print name, fill_value
-                # missing_value = field.attrs.get('MissingValue', None)
+                #print name, fill_value
+                #missing_value = field.attrs.get('MissingValue', None)
                 missing_value = fill_value
                 scale = field.attrs.get('ScaleFactor', 1.0)
                 offset = field.attrs.get('Offset', 0.0)
@@ -279,12 +279,15 @@ def do_gridding_by_files(year, month, day, gridding_method, file_path, req_field
                 if len(np.shape(data[name])) == 2:
                     data[name] = data[name].T
 
-                print name, np.shape(data[name])
-
-        data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes=(2, 1, 0))
-        data['TiledCornerLatitude'] = np.transpose(data['TiledCornerLatitude'], axes=(2, 1, 0))
-        data['FoV75CornerLatitude'] = np.transpose(data['FoV75CornerLatitude'], axes=(2, 1, 0))
-        data['FoV75CornerLongitude'] = np.transpose(data['FoV75CornerLongitude'], axes=(2, 1, 0))
+                    
+                #print name, np.shape(data[name])
+                                
+        ##data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes =(1,0,2))
+        ##data['TiledCornerLatitude'] = np.transpose(data['TiledCornerLatitude'], axes =(1,0,2))
+        data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes =(2,1,0))
+        data['TiledCornerLatitude'] = np.transpose(data['TiledCornerLatitude'], axes =(2,1,0))
+        data['FoV75CornerLatitude'] = np.transpose(data['FoV75CornerLatitude'], axes =(2,1,0))
+        data['FoV75CornerLongitude'] = np.transpose(data['FoV75CornerLongitude'], axes =(2,1,0))
 
         data['TiledArea'] = data['TiledArea'].T[0]
         data['FoV75Area'] = data['FoV75Area'].T[0]
@@ -292,11 +295,12 @@ def do_gridding_by_files(year, month, day, gridding_method, file_path, req_field
         data['SpacecraftLatitude'] = data['SpacecraftLatitude'].T[0]
         data['SpacecraftLongitude'] = data['SpacecraftLongitude'].T[0]
         data['Time'] = data['Time'].T[0]
-        print np.shape(data['TiledCornerLongitude']), np.shape(data['FoV75Area'])
-        for i in range(len(req_fields)):
-            print req_fields[i], ':', np.shape(data[req_fields[i]])
+        
+        #print np.shape(data['TiledCornerLongitude']), np.shape(data['FoV75Area'])
+        #for i in range(len(req_fields)):
+        #    print req_fields[i], ':', np.shape(data[req_fields[i]])
 
-        print ''
+        #print ''
 
         all_data.append(data)
 
