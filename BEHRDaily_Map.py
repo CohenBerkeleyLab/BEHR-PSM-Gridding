@@ -95,9 +95,8 @@ def preprocessing(gridding_method, Time, BEHRColumnAmountNO2Trop,
 
     return values, errors, stddev, weights
 
-
-def main(year, month, day, gridding_method, grid_name, List):
-    # 1. Define a grid
+def do_gridding(all_data, gridding_method):
+    # Define a grid
     # (a) by giving lower-left and upper-right corner
 
     # grid = omi.Grid(llcrnrlat=40.0, urcrnrlat=55.0,llcrnrlon=-5.0, urcrnrlon=20.0, resolution=0.002); grid_name = 'Germany'#7500*12500
@@ -108,7 +107,7 @@ def main(year, month, day, gridding_method, grid_name, List):
     grid_name = "northamerica_behr"
     grid = omi.Grid.by_name(grid_name)
 
-    # 2. Define parameter for PSM
+    # Define parameter for PSM
     #    - gamma (smoothing parameter)
     #    - rho_est (typical maximum value of distribution)
     rho_est = 4e16
@@ -116,36 +115,122 @@ def main(year, month, day, gridding_method, grid_name, List):
         # gamma is computed as function of pixel overlap
         gamma = omi.compute_smoothing_parameter(1.0, 10.0)
 
-    # 3. Define a mapping which maps a key to the path in the
+    # Loop over the individual dictionaries in the list of dictionaries
+    for data in all_data:
+        # 5) Check for missing corner coordinates, i.e. the zoom product,
+        #    which is currently not supported
+        if (data['TiledCornerLongitude'].mask.any() or
+                data['TiledCornerLatitude'].mask.any()):
+            continue
+
+        # 6) Clip orbit to grid domain
+        lon = data['FoV75CornerLongitude']
+        lat = data['FoV75CornerLatitude']
+        # pdb.set_trace()
+        data = omi.clip_orbit(grid, lon, lat, data, boundary=(2, 2))
+
+        if data['BEHRColumnAmountNO2Trop'].size == 0:
+            continue
+
+        # 7) Use a self-written function to preprocess the OMI data and
+        #    to create the following arrays MxN:
+        #    - measurement values
+        #    - measurement errors (currently only CVM grids errors)
+        #    - estimate of stddev (used in PSM)
+        #    - weight of each measurement
+        #    (see the function preprocessing for an example)
+        values, errors, stddev, weights = preprocessing(gridding_method, **data)
+        missing_values = values.mask.copy()
+
+        if np.all(values.mask):
+            continue
+
+        # 8) Grid orbit using PSM or CVM:
+        # print 'time: %s, orbit: %d' % (timestamp, orbit)
+        if gridding_method == 'psm':
+            grid = omi.psm_grid(grid,
+                                data['Longitude'], data['Latitude'],
+                                data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+                                values, errors, stddev, weights, missing_values,
+                                data['SpacecraftLongitude'], data['SpacecraftLatitude'],
+                                data['SpacecraftAltitude'],
+                                gamma[data['ColumnIndices']],
+                                rho_est
+                                )
+        else:
+            grid = omi.cvm_grid(grid, data['FoV75CornerLongitude'], data['FoV75CornerLatitude'],
+                                values, errors, weights, missing_values)
+
+    # 9) The distribution of values and errors has to be normalised
+    #    with the weight.
+    grid.norm()
+
+    return grid
+
+
+
+def do_gridding_by_input(data, gridding_method, req_fields):
+    # This function takes BEHR data directly as either a dictionary (holding the "Data" structure used in Matlab) or a
+    # list of such structures (if Data has > 1 element). It assumes that all values in data have been scaled and had any
+    # offset removed. It also assumes that fill values have been replaced by NaNs (though a warning will be issued if
+    # values < fill_lim are found)
+
+    fill_lim = -1e29 # used to test for un-NaNed fills
+
+    if type(data) is dict:
+        data = [data]
+    elif type(data) is not list:
+        raise TypeError("DATA must be a dictionary or list.")
+
+    do_fill_warn = False
+    found_fills_in = []
+
+    for o in range(len(data)):
+        for i in range(len(req_fields)):
+            name = req_fields[i]
+            try:
+                value = data[o][name]
+            except KeyError:
+                raise KeyError("Field {0} not found in swath {1}".format(name, o))
+
+            mask = np.isnan(value)
+            if np.any(value < fill_lim):
+                do_fill_warn = True
+                found_fills_in.append(name)
+
+            # Convert each field to a masked array
+            if value.dtype == np.float32:
+                data[o][name] = ma.array(value, mask=mask, dtype=np.float64)
+            else:
+                data[o][name] = ma.array(value, mask=mask, dtype=value.dtype)
+
+        # Issue a warning for this orbit if possible fill values identified
+        if do_fill_warn:
+            warnings.warn("Fill values\n"
+                          "Possible fill values (< {0}) detected in swath {1} for fields:"
+                          "{2}".format(fill_lim, o, ', '.join(found_fills_in)))
+
+    do_gridding(data, gridding_method)
+
+def do_gridding_by_files(year, month, day, gridding_method, file_path, req_fields):
+    # Define a mapping which maps a key to the path in the
     #    HDF file. The function
     #    >>> omi.he5.create_name2dataset(path, list_of_dataset_names, dict)
     #    can be helpful (see above).
     name2datasets = [NAME2DATASET_NO2, NAME2DATASET_PIXEL]
 
-    filename = '/usr/users/annette.schuett/Masterarbeit/Vergleich_Ber/HDF/BEHR-PSM/OMI_BEHR_v2-1B_%s%s%s.hdf' % (
-        year, month, day)
-    print filename
+    file_pattern = "OMI_BEHR_v2-1B_{0}{1}{2}.hdf".format(year, month, day)
+    filename = os.path.join(file_path, file_pattern)
+    print "Gridding", filename
 
     # f = readin(filename)
     f = h5py.File(filename, 'r')
-    data = dict()
-    """
-    for orbit in f['Data']:
-        for name in f['Data'][orbit]:
-            print orbit, name
-            value = f['Data'][orbit][name]
-            
-            if value.dtype == np.float32:
-                data[name] = ma.array(value)#, mask=mask, dtype=np.float64)
-            else:
-                data[name] = ma.array(value)
-                
-    """
+    all_data = []
 
     for orbit in f['Data']:
-        # for name in f['Data'][orbit]:
-        for i in range(len(List)):
-            name = List[i]
+        data = dict()
+        for i in range(len(req_fields)):
+            name = req_fields[i]
             # print name,':'
             field = f.get(('Data/%s/%s') % (orbit, name), None)
             if field is None:
@@ -187,8 +272,6 @@ def main(year, month, day, gridding_method, grid_name, List):
 
                 print name, np.shape(data[name])
 
-        ##data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes =(1,0,2))
-        ##data['TiledCornerLatitude'] = np.transpose(data['TiledCornerLatitude'], axes =(1,0,2))
         data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes=(2, 1, 0))
         data['TiledCornerLatitude'] = np.transpose(data['TiledCornerLatitude'], axes=(2, 1, 0))
         data['FoV75CornerLatitude'] = np.transpose(data['FoV75CornerLatitude'], axes=(2, 1, 0))
@@ -201,64 +284,19 @@ def main(year, month, day, gridding_method, grid_name, List):
         data['SpacecraftLongitude'] = data['SpacecraftLongitude'].T[0]
         data['Time'] = data['Time'].T[0]
         print np.shape(data['TiledCornerLongitude']), np.shape(data['FoV75Area'])
-        for i in range(len(List)):
-            print List[i], ':', np.shape(data[List[i]])
+        for i in range(len(req_fields)):
+            print req_fields[i], ':', np.shape(data[req_fields[i]])
 
         print ''
 
-        # 5) Check for missing corner coordinates, i.e. the zoom product,
-        #    which is currently not supported
-        if (data['TiledCornerLongitude'].mask.any() or
-                data['TiledCornerLatitude'].mask.any()):
-            continue
+        all_data.append(data)
 
-        # 6) Clip orbit to grid domain
-        lon = data['FoV75CornerLongitude']
-        lat = data['FoV75CornerLatitude']
-        # pdb.set_trace()
-        data = omi.clip_orbit(grid, lon, lat, data, boundary=(2, 2))
-
-        if data['BEHRColumnAmountNO2Trop'].size == 0:
-            continue
-
-        # 7) Use a self-written function to preprocess the OMI data and
-        #    to create the following arrays MxN:
-        #    - measurement values 
-        #    - measurement errors (currently only CVM grids errors)
-        #    - estimate of stddev (used in PSM)
-        #    - weight of each measurement
-        #    (see the function preprocessing for an example)
-        values, errors, stddev, weights = preprocessing(gridding_method, **data)
-        missing_values = values.mask.copy()
-
-        if np.all(values.mask):
-            continue
-
-        # 8) Grid orbit using PSM or CVM:
-        # print 'time: %s, orbit: %d' % (timestamp, orbit)
-        if gridding_method == 'psm':
-            grid = omi.psm_grid(grid,
-                                data['Longitude'], data['Latitude'],
-                                data['TiledCornerLongitude'], data['TiledCornerLatitude'],
-                                values, errors, stddev, weights, missing_values,
-                                data['SpacecraftLongitude'], data['SpacecraftLatitude'],
-                                data['SpacecraftAltitude'],
-                                gamma[data['ColumnIndices']],
-                                rho_est
-                                )
-        else:
-            grid = omi.cvm_grid(grid, data['FoV75CornerLongitude'], data['FoV75CornerLatitude'],
-                                values, errors, weights, missing_values)
-
-    # 9) The distribution of values and errors has to be normalised
-    #    with the weight.
-    grid.norm()
+    grid = do_gridding(all_data, gridding_method)
 
     # 10) The Level 3 product can be saved as HDF5 file
     #     or converted to an image (requires matplotlib and basemap
     grid.save_as_he5('%s_%s_%s_%s_%s.he5' % (grid_name, year, month, day, gridding_method))
-    grid.save_as_image('%s_%s_%s_%s_%s.png' % (grid_name, year, month, day, gridding_method), vmin=0, vmax=rho_est)
-    # grid.save_as_image('%s_%s_%s_%s_%s.he5' % ( str(start_date)[8:10],  str(start_date)[5:7],  str(start_date)[0:4], grid_name, gridding_method), vmin=0, vmax=rho_est)
+    # grid.save_as_image('%s_%s_%s_%s_%s.png' % (grid_name, year, month, day, gridding_method), vmin=0, vmax=rho_est)
 
     # 11) It is possible to set values, errors and weights to zero.
     grid.zero()
@@ -268,15 +306,17 @@ if __name__ == '__main__':
 
     grid_name = 'NA'
 
-    files = glob.glob('/usr/users/annette.schuett/Masterarbeit/Vergleich_Ber/HDF/BEHR-PSM/OMI_BEHR_v2-1B_2015*.hdf')
+    file_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'
+    files = glob.glob(os.path.join(file_path,'OMI_BEHR_v2-1B_201506*.hdf'))
     np.sort(files)
     counter = 0
 
     for filename in files:
-        year = filename[82:86]
-        month = filename[86:88]
-        day = filename[88:90]
-        main(year, month, day, 'psm', grid_name, List)
+        m = re.search('\d\d\d\d\d\d\d\d',filename)
+        year = m.group(0)[0:4]
+        month = m.group(0)[4:6]
+        day = m.group(0)[6:8]
+        do_gridding_by_files(year, month, day, 'psm', grid_name, List)
         counter += 1
         # if counter == 2:
         # break
