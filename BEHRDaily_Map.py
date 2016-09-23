@@ -4,14 +4,15 @@
 
 import warnings
 import os
+import sys
 import numpy as np
 import numpy.ma as ma
 import omi
 import glob
 import h5py
 from scipy.spatial.qhull import QhullError
-from mpl_toolkits.basemap import Basemap
-import matplotlib.pyplot as plt
+#from mpl_toolkits.basemap import Basemap
+#import matplotlib.pyplot as plt
 import re
 
 import pdb
@@ -109,7 +110,7 @@ def do_gridding(all_data, gridding_method):
 
     # (b) or by reading this data from a JSON file
     #    (the default file can be found in omi/data/gridds.json)
-    grid_name = "northamerica_behr"
+    grid_name = "northamerica_behrtest"
     grid = omi.Grid.by_name(grid_name)
 
     # Define parameter for PSM
@@ -126,12 +127,12 @@ def do_gridding(all_data, gridding_method):
         #    which is currently not supported
         if (data['TiledCornerLongitude'].mask.any() or
                 data['TiledCornerLatitude'].mask.any()):
+            print '    Skipping zoom mode orbit'
             continue
 
         # 6) Clip orbit to grid domain
         lon = data['FoV75CornerLongitude']
         lat = data['FoV75CornerLatitude']
-        # pdb.set_trace()
         data = omi.clip_orbit(grid, lon, lat, data, boundary=(2, 2))
 
         if data['BEHRColumnAmountNO2Trop'].size == 0:
@@ -219,7 +220,7 @@ def do_gridding_by_input(data, gridding_method, req_fields):
                           "Possible fill values (< {0}) detected in swath {1} for fields:"
                           "{2}".format(fill_lim, o, ', '.join(found_fills_in)))
 
-    do_gridding(data, gridding_method)
+    return do_gridding(data, gridding_method)
 
 def do_gridding_by_files(year, month, day, gridding_method, file_path, req_fields):
     # Define a mapping which maps a key to the path in the
@@ -281,7 +282,7 @@ def do_gridding_by_files(year, month, day, gridding_method, file_path, req_field
 
                     
                 #print name, np.shape(data[name])
-                                
+
         ##data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes =(1,0,2))
         ##data['TiledCornerLatitude'] = np.transpose(data['TiledCornerLatitude'], axes =(1,0,2))
         data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes =(2,1,0))
@@ -295,7 +296,7 @@ def do_gridding_by_files(year, month, day, gridding_method, file_path, req_field
         data['SpacecraftLatitude'] = data['SpacecraftLatitude'].T[0]
         data['SpacecraftLongitude'] = data['SpacecraftLongitude'].T[0]
         data['Time'] = data['Time'].T[0]
-        
+
         #print np.shape(data['TiledCornerLongitude']), np.shape(data['FoV75Area'])
         #for i in range(len(req_fields)):
         #    print req_fields[i], ':', np.shape(data[req_fields[i]])
@@ -309,19 +310,49 @@ def do_gridding_by_files(year, month, day, gridding_method, file_path, req_field
 
     # 10) The Level 3 product can be saved as HDF5 file
     #     or converted to an image (requires matplotlib and basemap
-    grid.save_as_he5('%s_%s_%s_%s_%s.he5' % (grid_name, year, month, day, gridding_method))
+    grid.save_as_he5('northamerica_behr_%s_%s_%s_%s.he5' % (year, month, day, gridding_method))
     # grid.save_as_image('%s_%s_%s_%s_%s.png' % (grid_name, year, month, day, gridding_method), vmin=0, vmax=rho_est)
 
     # 11) It is possible to set values, errors and weights to zero.
     grid.zero()
 
+def imatlab_gridding(data_in):
+    # This is the interface function that should be called from Matlab to pass the Data structure as a list of
+    # dictionaries. The conversion should happen on the Matlab side. This will verify that the required fields are
+    # present in the dictionary
+    if type(data_in) is dict:
+        test_data = data_in
+    elif type(data_in) is list and type(data_in[0]) is dict:
+        test_data = data_in[0]
+    else:
+        raise TypeError('DATA_IN must be either a dictionary or a list of dictionaries')
+
+    # Validate the fields present
+    missing_fields = []
+    field_type_warn = []
+    for name in List:
+        if name not in test_data:
+            missing_fields.append(name)
+        elif type(test_data[name]) is not np.ndarray:
+            s = '{0} {1}'.format(name, type(test_data[name]))
+            field_type_warn.append(s)
+
+    if len(missing_fields) > 0:
+        errstr = 'The following required fields are missing:\n{0}'.format('\n'.join(missing_fields))
+        print >>sys.stderr, errstr
+        raise KeyError('Required fields are missing')
+    elif len(field_type_warn) > 0:
+        print 'WARNING: Some fields are not of type numpy.array:'
+        print '\n'.join(field_type_warn)
+
+    return do_gridding_by_input(data_in, 'psm', List)
 
 if __name__ == '__main__':
 
     grid_name = 'NA'
 
     file_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'
-    files = glob.glob(os.path.join(file_path,'OMI_BEHR_v2-1B_201506*.hdf'))
+    files = glob.glob(os.path.join(file_path,'OMI_BEHR_v2-1B_2015*.hdf'))
     np.sort(files)
     counter = 0
 
@@ -330,7 +361,7 @@ if __name__ == '__main__':
         year = m.group(0)[0:4]
         month = m.group(0)[4:6]
         day = m.group(0)[6:8]
-        do_gridding_by_files(year, month, day, 'psm', grid_name, List)
+        do_gridding_by_files(year, month, day, 'psm', file_path, List)
         counter += 1
         # if counter == 2:
         # break
