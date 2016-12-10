@@ -32,6 +32,7 @@ import numpy as np
 import numpy.ma as ma
 import scipy.sparse as sparse
 import calendar
+import warnings
 
 
 def iter_dates(start, end, step=1):
@@ -130,6 +131,24 @@ def iter_filenames(start_date, end_date, products, data_path):
 
         for filename in zip(*filenames):
             yield filename
+
+def iter_behr_filenames(start_date, end_date, data_path):
+    for date in iter_dates(start_date, end_date):
+        year = date.strftime('%Y')
+        month = date.strftime('%m')
+        day = date.strftime('%d')
+
+        # Allow the BEHR files to be any version
+        behrname = "OMI_BEHR_*{0}{1}{2}.hdf".format(year, month, day)
+
+        filenames = sorted(glob.glob(os.path.join(data_path, behrname)))
+
+        if len(filenames) > 1:
+            raise IOError('Multiple BEHR files found for {0}-{1}-{2}'.format(year, month, day))
+        elif len(filenames) < 1:
+            raise IOError('No BEHR files found for {0}-{1}-{2}'.format(year, month, day))
+
+        yield filenames[0]
 
 
 def write_datasets(filename, data, mode='w'):
@@ -310,6 +329,12 @@ def iter_orbits(start_date, end_date, products, name2datasets, data_path, weekda
 
         yield timestamp, orbit, data
 
+def iter_behr_orbits(start_date, end_date, products, name2datasets, data_path, weekdays= None):
+    data = {}
+    for filename in iter_behr_filenames(start_date, end_date, data_path):
+        data.update(read_datasets(filename, name2datasets))
+
+    yield data
 
 
 
