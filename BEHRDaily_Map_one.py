@@ -1,26 +1,26 @@
+# Author: Annette Schuett, Gerret Kuhlmann
+
+
 # /usr/bin/env python
 # coding: utf-8
 
-from datetime import datetime
+import datetime
 
 import numpy as np
 import numpy.ma as ma
-import os
-import glob
+from multiprocessing import Pool
+import os.path
+import pdb
+
+
 #import sys
 #sys.path.append('/usr/users/annette.schuett/Masterarbeit/omi-master/omi')
 import omi
+
 #import '/usr/users/annette.schuett/Masterarbeit/omi-master/omi'
-import glob
-from datetime import date
-import calendar
-import h5py
-import numpy as np
-from scipy.spatial.qhull import QhullError
-from mpl_toolkits.basemap import Basemap
-import matplotlib.pyplot as plt
-import re
-import pdb
+
+#      new programm, without mask |= RootMeanSquareErrorOfFit > 0.0003, because the new product has no RootMeanSquareErrorOfFit
+
 
 
 
@@ -34,13 +34,13 @@ import pdb
 
 NAME2DATASET_PIXEL = {}
 omi.he5.create_name2dataset(
-    'Data/SWATHS*',
+    '/Data/SWATHS*',
     ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
      'FoV75Area', 'FoV75CornerLatitude', 'FoV75CornerLongitude'],
     NAME2DATASET_PIXEL
 )
 omi.he5.create_name2dataset(
-    'Data/SWATHS*',
+    '/Data/SWATHS*',
     ['Latitude', 'Longitude', 'SpacecraftAltitude',
      'SpacecraftLatitude', 'SpacecraftLongitude'],
     NAME2DATASET_PIXEL
@@ -48,225 +48,274 @@ omi.he5.create_name2dataset(
 
 NAME2DATASET_NO2 = {}
 omi.he5.create_name2dataset(
-    'Data/SWATHS*',
-    ['CloudRadianceFraction', 'CloudPressure', 'ColumnAmountNO2Trop',
-     'ColumnAmountNO2TropStd', 'RootMeanSquareErrorOfFit',
+    '/Data/SWATHS*',
+    ['CloudRadianceFraction', 'CloudPressure', 'BEHRColumnAmountNO2Trop',
+     'ColumnAmountNO2TropStd',
      'VcdQualityFlags', 'XTrackQualityFlags'],
     NAME2DATASET_NO2
 )
 omi.he5.create_name2dataset(
-    'Data/SWATHS*',
+    '/Data/SWATHS*',
     ['SolarZenithAngle', 'Time'],
     NAME2DATASET_NO2
 )
-List = ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
-     'FoV75Area', 'FoV75CornerLatitude', 'FoV75CornerLongitude',
-     'Latitude', 'Longitude', 'SpacecraftAltitude',
-     'SpacecraftLatitude', 'SpacecraftLongitude',
-     'CloudRadianceFraction', 'CloudPressure', 'BEHRColumnAmountNO2Trop',
-     'ColumnAmountNO2TropStd', 'RootMeanSquareErrorOfFit',
-     'vcdQualityFlags', 'XTrackQualityFlags',
-     'SolarZenithAngle', 'Time']
 
 
-def readin(Filename):
-    f = h5py.File(Filename,'r')
-    dictionary = {}
-    #for name in f:
-         #str = 'array'
-         #str2 = str+'_%s' %np.str(name) # = np.get(name)
-         #print str2
-         #dictionary[str2] =  f.get(name)
-         #print name
-    return f  
 
-
-def preprocessing(gridding_method, Time, BEHRColumnAmountNO2Trop,
-    ColumnAmountNO2TropStd, FoV75Area, CloudRadianceFraction,
-    RootMeanSquareErrorOfFit, SolarZenithAngle, vcdQualityFlags,
+def preprocessing(Time, ColumnAmountNO2Trop,
+    ColumnAmountNO2TropStd, FoV75Area, CloudRadianceFraction, 
+    SolarZenithAngle, VcdQualityFlags,
     XTrackQualityFlags, **kwargs):
 
     # mask of bad values
-    mask = BEHRColumnAmountNO2Trop.mask | ColumnAmountNO2TropStd.mask
+    mask = ColumnAmountNO2Trop.mask | ColumnAmountNO2TropStd.mask
 
     # mask low quality data
-    mask |= RootMeanSquareErrorOfFit > 0.0003
+    #mask |= RootMeanSquareErrorOfFit > 0.0003
     mask |= SolarZenithAngle > 85
-    mask |= vcdQualityFlags % 2 != 0
+    mask |= VcdQualityFlags % 2 != 0
     mask |= XTrackQualityFlags != 0
-    mask |= CloudRadianceFraction > 0.5
-    mask |= BEHRColumnAmountNO2Trop < 0
-    mask |= BEHRColumnAmountNO2Trop > 1e17
+    
 
     # set invalid cloud cover to 100% -> smallest weight
     CloudRadianceFraction[CloudRadianceFraction.mask] = 1.0
 
     # values and errors
-    values = ma.array(BEHRColumnAmountNO2Trop, mask=mask)
+    values = ma.array(ColumnAmountNO2Trop, mask=mask)
     errors = ma.array(ColumnAmountNO2TropStd, mask=mask)
 
     # weight based on stddev and pixel area (see Wenig et al., 2008)
     stddev = 1.5e15 * (1.0 + 3.0 * ma.array(CloudRadianceFraction, mask=mask))
     area = FoV75Area.reshape(1, FoV75Area.size)
-    area = area.repeat(BEHRColumnAmountNO2Trop.shape[0], axis=0)
+    area = area.repeat(ColumnAmountNO2Trop.shape[0], axis=0)
 
-    
+    #if gridding_method.startswith('psm'):
     weights = ma.array(1.0 / area, mask=mask)
-    
+    #else:
+        #weights = ma.array(1.0 / (area * stddev**2), mask=mask)
 
     return values, errors, stddev, weights
 
 
-def main(year, month, day, gridding_method, grid_name, List):
+def generate_zip_lists(start, stop, grid_name, data_path, save_path):
+    startlist = []
+    stoplist = []
+    gridlist = []
+    pathlist = []
+    savelist = []
+    daydate = start 
+    while daydate != stop:
+        startlist.append(daydate)
+        daydate += datetime.timedelta(days = 1)
+        stoplist.append(daydate)
+        gridlist.append(grid_name)
+        pathlist.append(data_path)
+        savelist.append(save_path)
+    
+    return startlist, stoplist, gridlist, pathlist, savelist
+
+def gridname2grid(grid_name): #return grid
+    #pdb.set_trace()
+    if grid_name=='Global':
+        grid = omi.Grid(llcrnrlat=-90.0, urcrnrlat=90.0,llcrnrlon=-180.0, urcrnrlon=180.0, resolution=0.05);# grid_name = 'Global' # 3600 x 7200
+        
+    elif grid_name=='MiddleEurope':
+        grid = omi.Grid(llcrnrlat=40.0, urcrnrlat=55.0,llcrnrlon=-5.0, urcrnrlon=20.0, resolution=0.004);# grid_name = 'MiddleEurope' # 3750 x 6250
+    elif grid_name=='Europe':
+        grid = omi.Grid(llcrnrlat=35.0, urcrnrlat=60.0,llcrnrlon=-10.0, urcrnrlon=25.0, resolution=0.005);# grid_name = 'Europe' # 5000 x 7000
+    elif grid_name=='Austria':
+        grid = omi.Grid(llcrnrlat= 46.2, urcrnrlat= 49.2,llcrnrlon= 9.3, urcrnrlon= 17.3, resolution= 0.001);# grid_name = 'Austria' # 3000 x 8000 
+    elif grid_name=='Hungary':
+        grid = omi.Grid(llcrnrlat= 45.5, urcrnrlat= 49.0,llcrnrlon= 15.7, urcrnrlon= 23.3, resolution=0.001);# grid_name = 'Hungary' # 3500 * 7600
+    elif grid_name=='France':
+        grid = omi.Grid(llcrnrlat=41.0, urcrnrlat= 52.0,llcrnrlon= -5.2, urcrnrlon= 8.9, resolution=0.002);# grid_name = 'France' # 5500 * 7050    
+    elif grid_name=='Germany':
+        grid = omi.Grid(llcrnrlat=45.5, urcrnrlat= 55.5,llcrnrlon= 5.0, urcrnrlon= 17.5, resolution=0.002);# grid_name = 'Germany' # 5000 * 6250  
+        
+    elif grid_name=='Northamerica':
+        grid = omi.Grid(llcrnrlat=15.0, urcrnrlat=55.0,llcrnrlon=-125.0, urcrnrlon=-65.0, resolution=0.01); #grid_name = 'Northamerica' # 4000 * 6000
+    elif grid_name=='Southamerica':
+        grid = omi.Grid(llcrnrlat=-60.0, urcrnrlat=20.0,llcrnrlon= -83.0, urcrnrlon= -32.0, resolution=0.01); #grid_name = 'Southamerica' # 8000 * 5100
+    elif grid_name=='Brasilia':
+        grid = omi.Grid(llcrnrlat= -34.6, urcrnrlat= 9.4,llcrnrlon= -76.6, urcrnrlon= -33.2, resolution=0.008); #grid_name = 'Brasilia' # 5500 * 5425
+        
+    elif grid_name=='Asia':
+        grid = omi.Grid(llcrnrlat=11.0, urcrnrlat=55.0,llcrnrlon=70.0, urcrnrlon=102.0, resolution=0.008); #grid_name = 'Asia' # 5500 * 4000
+    elif grid_name=='PearlRiverDelta':
+        grid = omi.Grid(llcrnrlat= 19.6, urcrnrlat= 25.6,llcrnrlon= 108.9, urcrnrlon= 117.6, resolution=0.0015); #grid_name = 'PearlRiverDelta' # 4000 * 5800
+    elif grid_name=='Industrial_China':
+        grid = omi.Grid(llcrnrlat= 20.5, urcrnrlat= 42.0,llcrnrlon= 102.0, urcrnrlon= 125.0, resolution=0.004);# grid_name = 'Industrial_China' # 5375 * 5750
+    elif grid_name=='Korea_Japan':
+        grid = omi.Grid(llcrnrlat= 30.0, urcrnrlat= 46,llcrnrlon= 124.0, urcrnrlon= 146.0, resolution=0.004);# grid_name = 'Korea_Japan' # 4000 * 5500
+    elif grid_name=='Shanghai':
+        grid = omi.Grid(llcrnrlat= 30.0, urcrnrlat= 33.0,llcrnrlon= 119.0, urcrnrlon= 123.0, resolution=0.001);# grid_name = 'Shanghai' # 3000 * 4000       #0006    
+    
+    elif grid_name=='MiddleEast':
+        grid = omi.Grid(llcrnrlat= 11.8, urcrnrlat= 46.0,llcrnrlon= 25.4, urcrnrlon= 77.0, resolution=0.008); #grid_name = 'MiddleEast' # 4275 * 6450
+    elif grid_name=='Syria':
+        grid = omi.Grid(llcrnrlat= 32.05, urcrnrlat= 37.55,llcrnrlon= 35.5, urcrnrlon= 42.5, resolution=0.001); #grid_name = 'Syria' # 5500 * 7000    
+    elif grid_name=='Israel':
+        grid = omi.Grid(llcrnrlat= 29.0, urcrnrlat= 33.5,llcrnrlon= 33.9, urcrnrlon= 36.9, resolution=0.001);# grid_name = 'Israel' # 7500 * 5000, res von 0.0006 auf 0.001
+    
+        
+        
+    elif grid_name=='Australia':
+        grid = omi.Grid(llcrnrlat= -45.0, urcrnrlat= -9.0,llcrnrlon= 110.0, urcrnrlon= 155.0, resolution=0.006); #grid_name = 'Australia' # 6000 * 7500 
+    elif grid_name=='NewZealand':
+        grid = omi.Grid(llcrnrlat= -53.0, urcrnrlat= -32.0,llcrnrlon= 165.0, urcrnrlon= 180.0, resolution=0.003); #grid_name = 'NewZealand' # 7000 * 5000
+    
+    
+    elif grid_name=='Africa':
+        grid = omi.Grid(llcrnrlat= -36.0, urcrnrlat= 40.0,llcrnrlon= -19.0, urcrnrlon= 52.0, resolution=0.01); #grid_name = 'Africa' # 7600 * 7100
+
+    elif grid_name=='NorthAmericaBEHR':
+        grid = omi.Grid(llcrnrlat= 25.0, urcrnrlat= 50.05, llcrnrlon= -125.0, urcrnrlon= -64.95, resolution= 0.05)
+
+    return grid
+
+
+def generate_filename(save_path, startdate,grid_name):
+
+    
+    grid=gridname2grid(grid_name)
+    filename='%s/NO2_%s_(%s_%s_%s)_lat(%s_%s)_lon(%s_%s)_res(%s)'% (save_path, grid_name, startdate.year, startdate.month, startdate.day, grid.llcrnrlat, grid.urcrnrlat, grid.llcrnrlon, grid.urcrnrlon,grid.resolution)
+    
+    return filename
+
+
+
+
+
+
+def unpack_args(func):
+    from functools import wraps
+    @wraps(func)
+    def wrapper(args):
+        if isinstance(args, dict):
+            return func(**args)
+        else:
+            return func(*args)
+    return wrapper
+
+#@unpack_args
+def main(start_date, end_date, grid_name, data_path, save_path):
+    
+    
+    
 
     # 1. Define a grid
-    # (a) by giving lower-left and upper-right corner
-    grid_name = "northamerica_behrtest"
-    #grid = omi.Grid(llcrnrlat=40.0, urcrnrlat=55.0,llcrnrlon=-5.0, urcrnrlon=20.0, resolution=0.002); grid_name = 'Germany'#7500*12500
-    #grid = omi.Grid(llcrnrlat= 17.8 , urcrnrlat=53.6 ,llcrnrlon=96.9 , urcrnrlon= 106.8, resolution=0.01); #grid_name = 'Northamerica'#6000*4000
-    grid = omi.Grid.by_name(grid_name)
-    # (b) or by reading this data from a JSON file
-    #    (the default file can be found in omi/data/gridds.json)
-   # grid = omi.Grid.by_name(grid_name)
 
-    # 2. Define parameter for PSM
-    #    - gamma (smoothing parameter)
-    #    - rho_est (typical maximum value of distribution)
-    rho_est = 4e16
-    if gridding_method == 'psm':
-        # gamma is computed as function of pixel overlap
-        gamma = omi.compute_smoothing_parameter(1.0, 10.0)
-
-    # 3. Define a mapping which maps a key to the path in the
-    #    HDF file. The function
-    #    >>> omi.he5.create_name2dataset(path, list_of_dataset_names, dict)
-    #    can be helpful (see above).
-    name2datasets = [NAME2DATASET_NO2, NAME2DATASET_PIXEL]
+    #grid = omi.Grid(llcrnrlat=40.0, urcrnrlat=55.0,llcrnrlon=-5.0, urcrnrlon=20.0, resolution=0.002); grid_name = 'Germany'#7500*12500 
+    #grid = omi.Grid.by_name(grid_name)
+    #grid = gridname2grid(grid_name)
     
-    filename = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM/OMI_BEHR_v2-1B_%s%s%s.hdf'%(year, month, day)
-    print filename
+    grid = gridname2grid(grid_name)
+    gridcoll = gridname2grid(grid_name)
+    wgrid = gridname2grid(grid_name)
     
-    #f = readin(filename)  
-    f = h5py.File(filename, 'r')
-    data = dict()
-    """
-    for orbit in f['Data']:
-        for name in f['Data'][orbit]:
-            print orbit, name
-            value = f['Data'][orbit][name]
+    grid.values = grid.values * 0.0
+    wgrid.values = wgrid.values * 0.0
+    gridcoll.values = gridcoll.values * 0.0
+    gridcoll.weights = gridcoll.weights * 0.0
+    
+    
+    
+    filename  = generate_filename(save_path, start_date,grid_name)
+    
+    
+    fname = '%s.he5' % (filename)
+    
+    if os.path.isfile(fname) == True:
+        print('Existing file:         ',  fname)
+    
+    
+    else:
             
-            if value.dtype == np.float32:
-                data[name] = ma.array(value)#, mask=mask, dtype=np.float64)
-            else:
-                data[name] = ma.array(value)
+
+        try:
+            
+
+            
+
+            # 2. Define parameter for PSM
+            #    - gamma (smoothing parameter)
+            #    - rho_est (typical maximum value of distribution)
+            rho_est = 4e16
+            
+            # gamma is computed as function of pixel overlap
+            gamma = omi.compute_smoothing_parameter(1.0, 10.0)
+
+            # 3. Define a mapping which maps a key to the path in the
+            #    HDF file. The function
+            #    >>> omi.he5.create_name2dataset(path, list_of_dataset_names, dict)
+            #    can be helpful (see above).
+            name2datasets = [NAME2DATASET_NO2, NAME2DATASET_PIXEL]
+
+            # 4a) data in OMI files can be read by
+            # >>> data = omi.he5.read_datasets(filename, name2dataset)
+
+            # 4b) or by iterating over orbits from start to end date at the following
+            #   location: 
+            #       os.path.join(data_path, product, 'level2', year, doy, '*.he5')
+            #
+            #   (see omi.he5 module for details)
+            #products = ['OMNO2.003', 'OMPIXCOR.003']
+            products = ['BEHR-PSM', 'BEHR-PSM']
+            pdb.set_trace()
+            for timestamp, orbit, data in omi.he5.iter_orbits(
+                    start_date, end_date, products, name2datasets, data_path
+                ):
+                print('time: %s, orbit: %d' % (timestamp, orbit))
+                grid = gridname2grid(grid_name)
+                wgrid = gridname2grid(grid_name)
                 
-    """
-    
-    for orbit in f['Data']:
-        #for name in f['Data'][orbit]:
-        for i in range(len(List)):
-            name = List[i]
-            #print name,':'
-            field = f.get(('Data/%s/%s')%(orbit,name), None)
-            if field is None:
-                print name, 'Warning'#: No data of name.' % (name)
-                data[name] = None
-            else: 
-                #print '----------------------------------------<worked'
+                #print '1'
                 
-                #fill_value = field.attrs.get('_FillValue', None)
-                fill_value = field.fillvalue
-                #print name, fill_value
-                #missing_value = field.attrs.get('MissingValue', None)
-                missing_value = fill_value
-                scale = field.attrs.get('ScaleFactor', 1.0)
-                offset = field.attrs.get('Offset', 0.0)
 
-                if fill_value is None and missing_value is None:
-                    raise ValueError('Missing `_FillValue` or `MissingValue` at orbit %s wirth product %s ' % (orbit, name))
+                # 5) Check for missing corner coordinates, i.e. the zoom product,
+                #    which is currently not supported
+                if (data['TiledCornerLongitude'].mask.any() or
+                    data['TiledCornerLatitude'].mask.any()
+                ):
+                    continue
 
-                value = field.value
-                mask = (field.value == fill_value) | (field.value == missing_value)
+                # 6) Clip orbit to grid domain
+                lon = data['FoV75CornerLongitude']
+                lat = data['FoV75CornerLatitude']
+                data = omi.clip_orbit(grid, lon, lat, data, boundary=(2,2))
+            
 
-                if fill_value < -1e25 or missing_value < -1e25:
-                    mask |= (field.value < -1e25)
-
-                if abs(scale - 1.0) > 1e-12:
-                    value = value * scale
-
-                if abs(offset - 0.0) > 1e-12:
-                    value = value + offset
-
-                if value.dtype == np.float32:
-                    data[name] = ma.array(value, mask=mask, dtype=np.float64)
-                else:
-                    data[name] = ma.array(value, mask=mask, dtype=value.dtype)
-                if len(np.shape(data[name]))==2:
-                    data[name] = data[name].T
+                if data['ColumnAmountNO2Trop'].size == 0:
+                    continue
                 
-                    
-                #print name, np.shape(data[name])
-                    
-                    
-                                
-        ##data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes =(1,0,2))
-        ##data['TiledCornerLatitude'] = np.transpose(data['TiledCornerLatitude'], axes =(1,0,2))
-        data['TiledCornerLongitude'] = np.transpose(data['TiledCornerLongitude'], axes =(2,1,0))
-        data['TiledCornerLatitude'] = np.transpose(data['TiledCornerLatitude'], axes =(2,1,0))
-        data['FoV75CornerLatitude'] = np.transpose(data['FoV75CornerLatitude'], axes =(2,1,0))
-        data['FoV75CornerLongitude'] = np.transpose(data['FoV75CornerLongitude'], axes =(2,1,0))
-        
-        
-        data['TiledArea'] = data['TiledArea'].T[0]
-        data['FoV75Area'] = data['FoV75Area'].T[0]
-        data['SpacecraftAltitude'] = data['SpacecraftAltitude'].T[0]
-        data['SpacecraftLatitude'] = data['SpacecraftLatitude'].T[0]
-        data['SpacecraftLongitude'] = data['SpacecraftLongitude'].T[0]
-        data['Time'] = data['Time'].T[0]
-        #print np.shape(data['TiledCornerLongitude']), np.shape(data['FoV75Area'])
-        #for i in range(len(List)):
-            #print List[i],':', np.shape(data[List[i]])
+                
+                #print '2'
+                
+
+                # 7) Use a self-written function to preprocess the OMI data and
+                #    to create the following arrays MxN:
+                #    - measurement values 
+                #    - measurement errors (currently only CVM grids errors)
+                #    - estimate of stddev (used in PSM)
+                #    - weight of each measurement
+                #    (see the function preprocessing for an example)
+                values, errors, stddev, weights = preprocessing(**data)
+                missing_values = values.mask.copy()
+
+                if np.all(values.mask):
+                    continue
+                
+                
+                #new_weight = 1/np.sqrt(np.abs((errors/1e15) * (1+2*data['CloudRadianceFraction']**2)))#**(1.0/2.0)
+                new_weight = weights/np.sqrt((np.abs((errors/1e15) * (1+2*data['CloudRadianceFraction']**2))))#**(1.0/2.0)
+
+
+                
+                #print 'time: %s, orbit: %d' % (timestamp, orbit)
+                #print '-----------------------------'
             
-            
-            
-        #print ''
-        
-        
-        # 5) Check for missing corner coordinates, i.e. the zoom product,
-        #    which is currently not supported
-        if (data['TiledCornerLongitude'].mask.any() or
-            data['TiledCornerLatitude'].mask.any()
-        ):
-            continue
-
-        # 6) Clip orbit to grid domain
-        lon = data['FoV75CornerLongitude']
-        lat = data['FoV75CornerLatitude']
-        #pdb.set_trace()
-        data = omi.clip_orbit(grid, lon, lat, data, boundary=(2,2))
-    
-
-        if data['BEHRColumnAmountNO2Trop'].size == 0:
-            continue
-
-        # 7) Use a self-written function to preprocess the OMI data and
-        #    to create the following arrays MxN:
-        #    - measurement values 
-        #    - measurement errors (currently only CVM grids errors)
-        #    - estimate of stddev (used in PSM)
-        #    - weight of each measurement
-        #    (see the function preprocessing for an example)
-        values, errors, stddev, weights = preprocessing(gridding_method, **data)
-        missing_values = values.mask.copy()
-
-        if np.all(values.mask):
-            continue
-
-
-        # 8) Grid orbit using PSM or CVM:
-        #print 'time: %s, orbit: %d' % (timestamp, orbit)
-        if gridding_method == 'psm':
-            try:
+                rho_est = 4e16
+                gamma = omi.compute_smoothing_parameter(1.0, 10.0)
                 grid = omi.psm_grid(grid,
                     data['Longitude'], data['Latitude'],
                     data['TiledCornerLongitude'], data['TiledCornerLatitude'],
@@ -276,65 +325,152 @@ def main(year, month, day, gridding_method, grid_name, List):
                     gamma[data['ColumnIndices']],
                     rho_est
                 )
-            except QhullError as e:
-                print "Cannot interpolate, QhullError: {0}".format(e.args[0])
-                continue
-        else:
-            grid = omi.cvm_grid(grid, data['FoV75CornerLongitude'], data['FoV75CornerLatitude'],
-            values, errors, weights, missing_values)
+                
+                #print '3'
+                gamma = omi.compute_smoothing_parameter(40.0, 40.0)
+                rho_est = 4
+                wgrid = omi.psm_grid(wgrid,
+                    data['Longitude'], data['Latitude'],
+                    data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+                    new_weight, errors,new_weight*0.9, weights, missing_values,
+                    data['SpacecraftLongitude'], data['SpacecraftLatitude'],
+                    data['SpacecraftAltitude'],
+                    gamma[data['ColumnIndices']],
+                    rho_est
+                )
+                # The 90% of new_weight = std. dev. is a best guess comparing uncertainty
+                # over land and sea
+                #print '4'
+                
+                grid.norm() # divides by the weights (at this point, the values in the grid are multiplied by the weights)
+                # Replace by the new weights later
+                #wgrid.norm() # if you normalize wgrid the data is not as smooth as it could be
+                wgrid.values = np.nan_to_num(np.array(wgrid.values))
+                grid.values = np.nan_to_num(np.array(grid.values))
+                
+                
+                
+                #grid.values = grid.values/grid.weights
+                #wgrid.values = wgrid.values/wgrid.weights
+                
+                
+                #print 'counter = ', counter, ':', np.max(gridcoll.values), np.max(grid.values), np.max(wgrid.values)
+                gridcoll.values += np.nan_to_num(grid.values)*np.nan_to_num(wgrid.values)
+                gridcoll.weights += wgrid.values
+                grid.zero()
+                wgrid.zero()
+                
+                
+                
 
 
-    # 9) The distribution of values and errors has to be normalised
-    #    with the weight.
-    grid.norm()
+            # 9) The distribution of values and errors has to be normalised
+            #    with the weight.
+            gridcoll.norm()
+            #grid.norm()
 
-    # 10) The Level 3 product can be saved as HDF5 file
-    #     or converted to an image (requires matplotlib and basemap
-    grid.save_as_he5('%s_%s_%s_%s_%s.he5' % (grid_name,year,  month,  day, gridding_method))
-    grid.save_as_image('%s_%s_%s_%s_%s.png' % (grid_name, year,  month,  day, gridding_method), vmin=0, vmax=rho_est)
+            # 10) The Level 3 product can be saved as HDF5 file
+            #     or converted to an image (requires matplotlib and basemap
+            
+            rho_est = 4e16
+            gridcoll.save_as_he5('%s.he5' % (filename))
+            #gridcoll.save_as_image('%s.png' % (filename), vmin=0, vmax=rho_est)
+
+        except:
+            print('No datas available at following day:', start_date)
+
+
+    
+    
+    #grid.save_as_he5('%s_%s_%s_%s_%s.he5' % (grid_name, str(start_date)[8:10],  str(start_date)[5:7],  str(start_date)[0:4]))
+    #grid.save_as_image('%s_%s_%s_%s_%s.png' % (grid_name, str(start_date)[8:10],str(start_date)[5:7],  str(start_date)[0:4]), vmin=0, vmax=rho_est)
     #grid.save_as_image('%s_%s_%s_%s_%s.he5' % ( str(start_date)[8:10],  str(start_date)[5:7],  str(start_date)[0:4], grid_name, gridding_method), vmin=0, vmax=rho_est)
 
     # 11) It is possible to set values, errors and weights to zero.
     grid.zero()
-    
+
+
+
+
+
+
 
 
 
 if __name__ == '__main__':
 
 
-    grid_name = 'NA'
 
+    start = datetime.datetime(2015, 6, 1)
+    stop = datetime.datetime(2015, 6, 2)
+    
+    grid_name = 'NorthAmericaBEHR'
+    
+    data_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison'         # where OMI-raw- datas are saved
+    #save_path = '/project/meteo/wenig/OMI_new_weight/Germany' # path, where you want to save your datas
+    #save_path = '/project/meteo/wenig/OMI_new_weight/Germany_try' # path, where you want to save your datas
+    save_path = '/Users/Josh/Documents/MATLAB/BEHR/Workspaces/PSM-Comparison/Tests/UpdateBranch' # path, where you want to save your datas
     
     
-    file_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'
-    files = glob.glob(os.path.join(file_path,'OMI_BEHR_v2-1B_2015*.hdf'))
-    np.sort(files)
-    counter = 0
-
-    for filename in files:
-        m = re.search('\d\d\d\d\d\d\d\d',filename)
-        year = m.group(0)[0:4]
-        month = m.group(0)[4:6]
-        day = m.group(0)[6:8]
-        main(year, month, day, 'psm', grid_name, List)
-        counter +=1
-        #if counter == 2:
-            #break
-        #print year, month, day   
+    #year = 2005
+    #month = 1
+    #day = 1
+    #start_date = datetime.datetime(year,month,day)
+    #end_date = datetime.datetime(year,month,day+1)
+    #main(start_date, end_date, grid_name, data_path, save_path)
+    
+    #p = Pool(1)
     
     
-        #start_date = datetime(year,month,day)
-        #end_date = datetime(year,month,day+1)
-    """
-    print "start_date =", start_date 
-
-    # Call main function twice to grid data using CVM and PSM
-    main(start_date, end_date, 'cvm', grid_name, data_path)
-   
-    print "First Algorithm ready"
-     """
-        #main(year, month, day, 'psm', grid_name, data_path)
+    #a,b,c,d, e = generate_zip_lists(start, stop, grid_name, data_path, save_path)
+    #pdb.set_trace()
+    main(start, stop, grid_name, data_path, save_path)
+    
+    #p.map(main, list(zip(a,b,c,d,e)))
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
   
 
 
