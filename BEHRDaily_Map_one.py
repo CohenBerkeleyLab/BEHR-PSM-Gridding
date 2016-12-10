@@ -121,7 +121,7 @@ def main(year, month, day, gridding_method, grid_name, List):
 
     # 1. Define a grid
     # (a) by giving lower-left and upper-right corner
-    grid_name = "northamerica_josh"
+    grid_name = "northamerica_behrtest"
     #grid = omi.Grid(llcrnrlat=40.0, urcrnrlat=55.0,llcrnrlon=-5.0, urcrnrlon=20.0, resolution=0.002); grid_name = 'Germany'#7500*12500
     #grid = omi.Grid(llcrnrlat= 17.8 , urcrnrlat=53.6 ,llcrnrlon=96.9 , urcrnrlon= 106.8, resolution=0.01); #grid_name = 'Northamerica'#6000*4000
     grid = omi.Grid.by_name(grid_name)
