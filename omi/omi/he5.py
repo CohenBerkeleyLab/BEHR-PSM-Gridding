@@ -30,9 +30,12 @@ import os
 import h5py
 import numpy as np
 import numpy.ma as ma
+import re
 import scipy.sparse as sparse
 import calendar
 import warnings
+
+from . import convert
 
 
 def iter_dates(start, end, step=1):
@@ -223,18 +226,22 @@ def read_datasets(filename, name2dataset):
                 print('Warning: No %s in %s.' % (path, filename))
                 data[name] = None
             else:
+                try:
+                    fill_value_nonattr = field.fillvalue
+                except AttributeError:
+                    fill_value_nonattr = None
                 fill_value = field.attrs.get('_FillValue', None)
                 missing_value = field.attrs.get('MissingValue', None)
                 scale = field.attrs.get('ScaleFactor', 1.0)
                 offset = field.attrs.get('Offset', 0.0)
 
-                if fill_value is None and missing_value is None:
-                    raise ValueError('Missing `_FillValue` or `MissingValue` in %s in %s' % (path, filename))
+                if fill_value is None and fill_value_nonattr is None and missing_value is None:
+                    raise ValueError('Missing proptery `FillValue`, attribute `_FillValue`, or attribute `MissingValue` in %s in %s' % (path, filename))
 
                 value = field.value
-                mask = (field.value == fill_value) | (field.value == missing_value)
+                mask = (field.value == fill_value) | (fill_value == fill_value_nonattr) | (field.value == missing_value)
 
-                if fill_value < -1e25 or missing_value < -1e25:
+                if fill_value < -1e25 or missing_value < -1e25 or fill_value_nonattr < -1e25:
                     mask |= (field.value < -1e25)
 
                 if abs(scale - 1.0) > 1e-12:
@@ -330,13 +337,42 @@ def iter_orbits(start_date, end_date, products, name2datasets, data_path, weekda
         yield timestamp, orbit, data
 
 def iter_behr_orbits(start_date, end_date, products, name2datasets, data_path, weekdays= None):
-    data = {}
     for filename in iter_behr_filenames(start_date, end_date, data_path):
-        data.update(read_datasets(filename, name2datasets))
-
-    yield data
-
+        for timestamp, orbit, data in iter_behr_orbits_in_file(filename, name2datasets):
+            yield timestamp, orbit, data
 
 
+def iter_behr_orbits_in_file(filename, datasets):
+    """
+    BEHR files are organized such that a single file contains all orbits for the region for the day, and all the
+    relevant variables should be included in a single file (rather that being split between OMPIXCOR and OMNO2 files
+    as the SP is)
+    :param filename: the file to read
+    :param datasets: a list of datasets to import. Unlike iter_orbits, this function assumes that BEHR files have the
+     hierarchy /Data/SwathN/... where N is the orbit number, so a path is not required.
+    :return: timestamp - the earliest time in the file
+             orbit - the orbit number as an integer
+             data - a dictionary of the values read in from the .hdf file with keys that are the datasets given
+    """
+    groups = []
+    orbits = []
+    timestamps = []
+    with h5py.File(filename, 'r') as f:
+        for k in f['Data'].keys():
+            groups.append('/Data/' + k)
+            m = re.search('(?<=Swath)\d+', k)
+            if m is None:
+                raise RuntimeError('Could not get orbit number for group {0}'.format(k))
+            else:
+                orbits.append(int(m.group()))
 
+            if 'Time' not in f['Data'][k].keys():
+                raise KeyError('Variable Time not present in file {0}'.format(filename))
+            else:
+                swath_time = convert.tai93toDatetime(np.min(f['Data'][k]['Time']))
+                timestamps.append(swath_time)
 
+    for i in range(len(groups)):
+        name2dataset = create_name2dataset(groups[i], datasets)
+        data = read_datasets(filename, name2dataset)
+        yield timestamps[i], orbits[i], data
