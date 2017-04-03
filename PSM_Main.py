@@ -85,7 +85,8 @@ def behr_preprocessing(BEHRColumnAmountNO2Trop, ColumnAmountNO2TropStd, BEHRAMFT
     # mask bad values - BEHR does not have its own std. deviation value. Very small AMFs typically indicate something
     # went wrong in the processing. This should probably be corrected in the BEHR algorithm itself
     amfmask = np.array(BEHRAMFTrop < 1e-5)
-    mask = BEHRColumnAmountNO2Trop.mask | ColumnAmountNO2TropStd.mask | amfmask
+    cldmask = CloudRadianceFraction > 0.5
+    mask = BEHRColumnAmountNO2Trop.mask | ColumnAmountNO2TropStd.mask | amfmask | cldmask
 
     # mask low quality data
     mask |= SolarZenithAngle > 85
@@ -283,16 +284,16 @@ def grid_orbit(data, grid_info):
 
 def main():
     start = datetime.datetime(2015, 6, 1)
-    #stop = datetime.datetime(2015, 6, 16)
-    stop = datetime.datetime(2015, 8, 31)
+    stop = datetime.datetime(2015, 6, 2)
+    #stop = datetime.datetime(2015, 8, 31)
 
     grid_info = {'llcrnrlat': 25.0, 'urcrnrlat': 50.05, 'llcrnrlon': -125.0, 'urcrnrlon': -64.95, 'resolution': 0.05}
 
     data_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'  # where OMI-raw- data is saved
     save_path = '/Users/Josh/Documents/MATLAB/BEHR/Workspaces/PSM-Comparison/Tests/UpdateBranch'  # path, where you want to save your data
 
-    #save_individual_days(start, stop, data_path, save_path, grid_info)
-    save_average(start, stop, data_path, save_path, grid_info)
+    save_individual_days(start, stop, data_path, save_path, grid_info)
+    #save_average(start, stop, data_path, save_path, grid_info)
 
 if __name__ == '__main__':
     omi.verbosity = __verbosity__ - 1
