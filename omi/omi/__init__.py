@@ -22,6 +22,7 @@ from __future__ import print_function
 
 import json
 import os
+import warnings
 
 import numpy as np
 import scipy.interpolate
@@ -36,7 +37,7 @@ import pdb
 
 PACKAGE_DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
 
-
+verbosity = 0
 
 class Grid(object):
     def __init__(self, llcrnrlat, urcrnrlat, llcrnrlon, urcrnrlon,
@@ -484,8 +485,20 @@ def clip_orbit(grid, lon, lat, data, boundary=(2,2)):
     """
     domain = mask_grid_domain(grid, lon, lat)
 
+    if lon.ndim == 3:
+        across_size = lon.shape[2]
+        along_size = lon.shape[1]
+    elif lon.ndim == 2:
+        across_size = lon.shape[1]
+        along_size = lon.shape[0]
+    else:
+        raise RuntimeError('lon is expected to be 2D or 3D, it is not')
+
+    if across_size != 60 and across_size != 30:
+        warnings.warn('Across track size is {0}, this is unusual (typically is 60 or 30)'.format(across_size))
+
     if np.any(domain):
-        data, domain, col_indices = remove_out_of_domain_data(data, domain, boundary)
+        data, domain, col_indices = remove_out_of_domain_data(data, domain, boundary, across_size, along_size)
         data['ColumnIndices'] = col_indices
 
     else:
@@ -527,7 +540,7 @@ def mask_grid_domain(grid, lon, lat, type_='any'):
 
 
 
-def remove_out_of_domain_data(data, domain, boundary):
+def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
     """\
     Remove data from datasets which are outside domain
     with an added boundary in x- and y-direction.
@@ -552,32 +565,46 @@ def remove_out_of_domain_data(data, domain, boundary):
     domain = domain[y_slice,x_slice]
 
     for name, field in data.items():
-        #print (name)
-        #pdb.set_trace()
 
         if field.ndim == 1:
-            if field.size in [30, 60]:
-                data[name] = field[x_slice]
+            if verbosity > 0:
+                print('  omi.remove_out_of_domain_data: {0} is a 1D variable'.format(name))
 
-            elif field.size > 100: # TODO/FIXME: just a (good) guess!
+            if field.size == across_size:
+                data[name] = field[x_slice]
+            else:
                 data[name] = field[y_slice]
 
-            else:
-                pass
+        elif field.ndim == 2:
+            if verbosity > 0:
+                print('  omi.remove_out_of_domain_data: {0} is a 2D variable'.format(name))
 
-        elif field.ndim == 2 and field.size != 60:
-            data[name] = field[y_slice, x_slice]
+            if field.size == across_size or field.size == along_size:
+                raise RuntimeError('{0} size equals across or along track dimensions, this suggests it is actually a '
+                                   '1D variable that has a singleton dimensions.'.format(name))
+            else:
+                data[name] = field[y_slice, x_slice]
 
         elif field.ndim == 3:
+            if verbosity > 0:
+                print('  omi.remove_out_of_domain_data: {0} is a 3D variable'.format(name))
 
             # find dim for across-track direction
             try:
-                across = field.shape.index(60)
+                across = field.shape.index(across_size)
             except ValueError:
-                try:
-                    across = field.shape.index(30)
-                except ValueError:
-                    raise ValueError('3d field "%s" has no x-track axis (30 or 60 columns)' % name)
+                raise IndexError('3d field "{0}" has no x-track axis ({1} columns)'.format(name, across_size))
+
+            # do the same for the along-track direction
+            try:
+                along = field.shape.index(along_size)
+            except ValueError:
+                raise IndexError('3d field "{0}" has no along-track axis ({1} columns)'.format(name, along_size))
+
+            # We assume that it is ordered [along, across, other] or [other, along, across], check that assumption
+            if along != across - 1:
+                raise IndexError('3d field "{0}" does not have the across-track dimension follow the along track one'
+                                 .format(name))
 
             if across == 1:
                 data[name] = field[y_slice, x_slice,:]
@@ -589,8 +616,7 @@ def remove_out_of_domain_data(data, domain, boundary):
                 raise ValueError
 
         else:
-            raise NotImplementedError
-
+            raise NotImplementedError('Do not know how to clip a {0} dimension variable'.format(field.ndim))
 
     return data, domain, col_indices
 

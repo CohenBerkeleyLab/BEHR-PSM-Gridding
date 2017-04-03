@@ -194,7 +194,7 @@ def write_datasets(filename, data, mode='w'):
 
 
 
-def read_datasets(filename, name2dataset):
+def read_datasets(filename, name2dataset, reverse_dim_order=False):
     """\
     Reads OMI datasets from file as dictionary with
     structure: name -> np.ma.ndarray.
@@ -236,10 +236,14 @@ def read_datasets(filename, name2dataset):
                 offset = field.attrs.get('Offset', 0.0)
 
                 if fill_value is None and fill_value_nonattr is None and missing_value is None:
-                    raise ValueError('Missing proptery `FillValue`, attribute `_FillValue`, or attribute `MissingValue` in %s in %s' % (path, filename))
+                    raise ValueError('Missing property `FillValue`, attribute `_FillValue`, or attribute `MissingValue` in %s in %s' % (path, filename))
 
                 value = field.value
-                mask = (field.value == fill_value) | (fill_value == fill_value_nonattr) | (field.value == missing_value)
+
+                mask = (field.value == fill_value) | (field.value == fill_value_nonattr) | (field.value == missing_value)
+
+                # print ('  omi.he5.read_datasets: {0}: fill_value = {1}, fill_value_nonattr = {2}, missing_value = {3}'
+                #        .format(name, fill_value, fill_value_nonattr, missing_value))
 
                 if fill_value < -1e25 or missing_value < -1e25 or fill_value_nonattr < -1e25:
                     mask |= (field.value < -1e25)
@@ -249,6 +253,10 @@ def read_datasets(filename, name2dataset):
 
                 if abs(offset - 0.0) > 1e-12:
                     value = value + offset
+
+                if reverse_dim_order:
+                    value = np.transpose(value)
+                    mask = np.transpose(mask)
 
                 if value.dtype == np.float32:
                     data[name] = ma.array(value, mask=mask, dtype=np.float64)
@@ -374,5 +382,5 @@ def iter_behr_orbits_in_file(filename, datasets):
 
     for i in range(len(groups)):
         name2dataset = create_name2dataset(groups[i], datasets)
-        data = read_datasets(filename, name2dataset)
+        data = read_datasets(filename, name2dataset, reverse_dim_order=True) # BEHR dimensions are reversed from SP apparently
         yield timestamps[i], orbits[i], data
