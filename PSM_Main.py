@@ -85,7 +85,7 @@ def behr_preprocessing(BEHRColumnAmountNO2Trop, ColumnAmountNO2TropStd, BEHRAMFT
     # mask bad values - BEHR does not have its own std. deviation value. Very small AMFs typically indicate something
     # went wrong in the processing. This should probably be corrected in the BEHR algorithm itself
     amfmask = np.array(BEHRAMFTrop < 1e-5)
-    cldmask = CloudRadianceFraction > 0.5
+    cldmask = CloudRadianceFraction > 2.5
     mask = BEHRColumnAmountNO2Trop.mask | ColumnAmountNO2TropStd.mask | amfmask | cldmask
 
     # mask low quality data
@@ -110,13 +110,14 @@ def behr_preprocessing(BEHRColumnAmountNO2Trop, ColumnAmountNO2TropStd, BEHRAMFT
     return values, errors, stddev, weights
 
 
-def generate_filename(save_path, date_in, date_end=None):
+def generate_filename(save_path, gridding_method, date_in, date_end=None):
     if date_end is None:
-        fname = 'OMI_BEHR_PSM_{0}_{1}.he5'.format(behr_version(), date_in.strftime('%Y%m%d'))
+        fname = 'OMI_BEHR_{2}_{0}_{1}.he5'.format(behr_version(), date_in.strftime('%Y%m%d'), gridding_method.upper())
     else:
-        fname = 'OMI_BEHR_PSM_{0}_{1}-{2}.he5'.format(behr_version(),
+        fname = 'OMI_BEHR_{3}_{0}_{1}-{2}.he5'.format(behr_version(),
                                                       date_in.strftime('%Y%m%d'),
-                                                      date_end.strftime('%Y%m%d'))
+                                                      date_end.strftime('%Y%m%d'),
+                                                      gridding_method.upper())
     return os.path.join(save_path, fname)
 
 
@@ -133,7 +134,7 @@ def make_grid(grid_info):
 
 
 
-def grid_day_from_file(behr_file, grid_info):
+def grid_day_from_file(behr_file, grid_info, grid_method):
     day_grid = make_grid(grid_info)
     day_grid.zero() # ensure that values and weights are zeroed (just in case, Annette from Mark's group seems to be
                     # concerned that grids be zeroed out, though it seems like they really should start zeroed)
@@ -141,7 +142,7 @@ def grid_day_from_file(behr_file, grid_info):
     for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(behr_file, behr_datasets):
         if __verbosity__ > 0:
             print(' Gridding orbit no. {0}'.format(orbit_num))
-        vals, weights = grid_orbit(data, grid_info)
+        vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method)
         if vals is not None:
             day_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
             day_grid.weights += weights
@@ -150,18 +151,18 @@ def grid_day_from_file(behr_file, grid_info):
     return day_grid
 
 
-def save_individual_days(start_date, end_date, data_path, save_path, grid_info):
+def save_individual_days(start_date, end_date, data_path, save_path, grid_info, grid_method):
     for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
         if __verbosity__ > 0:
             print('Working on file {0}'.format(filename))
-        day_grid = grid_day_from_file(filename, grid_info)
+        day_grid = grid_day_from_file(filename, grid_info, grid_method)
         mobj = re.search('\d\d\d\d\d\d\d\d', filename)
         behr_date = datetime.datetime.strptime(mobj.group(), '%Y%m%d')
-        save_name = generate_filename(save_path, behr_date)
+        save_name = generate_filename(save_path, grid_method, behr_date)
         day_grid.save_as_he5(save_name)
 
 
-def multi_day_average(start_date, end_date, data_path, grid_info):
+def multi_day_average(start_date, end_date, data_path, grid_info, grid_method):
     avg_grid = make_grid(grid_info)
     avg_grid.zero()
     for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
@@ -172,7 +173,7 @@ def multi_day_average(start_date, end_date, data_path, grid_info):
             if __verbosity__ > 0:
                 print(' Gridding orbit no. {0}'.format(orbit_num))
 
-            vals, weights = grid_orbit(data, grid_info)
+            vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method)
             if vals is not None:
                 avg_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
                 avg_grid.weights += weights
@@ -181,13 +182,13 @@ def multi_day_average(start_date, end_date, data_path, grid_info):
     return avg_grid
 
 
-def save_average(start_date, end_date, data_path, save_path, grid_info):
-    avg = multi_day_average(start_date, end_date, data_path, grid_info)
-    save_name = generate_filename(save_path, start_date, end_date)
+def save_average(start_date, end_date, data_path, save_path, grid_info, grid_method):
+    avg = multi_day_average(start_date, end_date, data_path, grid_info, grid_method)
+    save_name = generate_filename(save_path, grid_method, start_date, end_date)
     avg.save_as_he5(save_name)
 
 
-def grid_orbit(data, grid_info):
+def grid_orbit(data, grid_info, gridding_method='psm'):
     # Input checking
     if not isinstance(data, dict):
         raise TypeError('data must be a dict')
@@ -236,64 +237,80 @@ def grid_orbit(data, grid_info):
     if __verbosity__ > 1:
         print('    Gridding VCDs')
 
-    rho_est = 4e16
-    gamma = omi.compute_smoothing_parameter(1.0, 10.0)
-    try:
-        grid = omi.psm_grid(grid,
-                            data['Longitude'], data['Latitude'],
-                            data['TiledCornerLongitude'], data['TiledCornerLatitude'],
-                            values, errors, stddev, weights, missing_values,
-                            data['SpacecraftLongitude'], data['SpacecraftLatitude'],
-                            data['SpacecraftAltitude'],
-                            gamma[data['ColumnIndices']],
-                            rho_est
-                            )
-    except QhullError as err:
-        print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
-        return None, None
+    if gridding_method == 'psm':
 
-    gamma = omi.compute_smoothing_parameter(40.0, 40.0)
-    rho_est = 4
+        rho_est = 4e16
+        gamma = omi.compute_smoothing_parameter(1.0, 10.0)
+        try:
+            grid = omi.psm_grid(grid,
+                                data['Longitude'], data['Latitude'],
+                                data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+                                values, errors, stddev, weights, missing_values,
+                                data['SpacecraftLongitude'], data['SpacecraftLatitude'],
+                                data['SpacecraftAltitude'],
+                                gamma[data['ColumnIndices']],
+                                rho_est
+                                )
+        except QhullError as err:
+            print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
+            return None, None
 
-    if __verbosity__ > 1:
-        print('    Gridding weights')
+        gamma = omi.compute_smoothing_parameter(40.0, 40.0)
+        rho_est = 4
 
-    try:
-        wgrid = omi.psm_grid(wgrid,
-                             data['Longitude'], data['Latitude'],
-                             data['TiledCornerLongitude'], data['TiledCornerLatitude'],
-                             new_weight, errors, new_weight * 0.9, weights, missing_values,
-                             data['SpacecraftLongitude'], data['SpacecraftLatitude'],
-                             data['SpacecraftAltitude'],
-                             gamma[data['ColumnIndices']],
-                             rho_est
-                             )
-        # The 90% of new_weight = std. dev. is a best guess comparing uncertainty
-        # over land and sea
-    except QhullError as err:
-        print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
-        return None, None
+        if __verbosity__ > 1:
+            print('    Gridding weights')
 
-    grid.norm()  # divides by the weights (at this point, the values in the grid are multiplied by the weights)
-    # Replace by the new weights later
-    # Don't normalize wgrid, if you normalize wgrid the data is not as smooth as it could be
-    wgrid.values = np.nan_to_num(np.array(wgrid.values))
-    grid.values = np.nan_to_num(np.array(grid.values))
+        try:
+            wgrid = omi.psm_grid(wgrid,
+                                 data['Longitude'], data['Latitude'],
+                                 data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+                                 new_weight, errors, new_weight * 0.9, weights, missing_values,
+                                 data['SpacecraftLongitude'], data['SpacecraftLatitude'],
+                                 data['SpacecraftAltitude'],
+                                 gamma[data['ColumnIndices']],
+                                 rho_est
+                                 )
+            # The 90% of new_weight = std. dev. is a best guess comparing uncertainty
+            # over land and sea
+        except QhullError as err:
+            print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
+            return None, None
 
-    return grid.values.copy(), wgrid.values.copy()
+        grid.norm()  # divides by the weights (at this point, the values in the grid are multiplied by the weights)
+        # Replace by the new weights later
+        # Don't normalize wgrid, if you normalize wgrid the data is not as smooth as it could be
+        wgrid_values = np.nan_to_num(np.array(wgrid.values))
+        grid_values = np.nan_to_num(np.array(grid.values))
+    elif gridding_method == 'cvm':
+        try:
+            grid = omi.cvm_grid(grid, data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+                                values, errors, weights, missing_values)
+        except QhullError as err:
+            print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
+            return None, None
+
+        wgrid_values = np.nan_to_num(grid.weights)
+        grid.norm()
+        grid_values = np.nan_to_num(grid.values)
+    else:
+        raise NotImplementedError('gridding method {0} not understood'.format(gridding_method))
+
+    return grid_values, wgrid_values
 
 def main():
     start = datetime.datetime(2015, 6, 1)
-    stop = datetime.datetime(2015, 6, 2)
-    #stop = datetime.datetime(2015, 8, 31)
+    #stop = datetime.datetime(2015, 6, 2)
+    stop = datetime.datetime(2015, 8, 31)
 
     grid_info = {'llcrnrlat': 25.0, 'urcrnrlat': 50.05, 'llcrnrlon': -125.0, 'urcrnrlon': -64.95, 'resolution': 0.05}
+    grid_method = 'cvm'
 
     data_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'  # where OMI-raw- data is saved
     save_path = '/Users/Josh/Documents/MATLAB/BEHR/Workspaces/PSM-Comparison/Tests/UpdateBranch'  # path, where you want to save your data
 
-    save_individual_days(start, stop, data_path, save_path, grid_info)
-    #save_average(start, stop, data_path, save_path, grid_info)
+    #save_individual_days(start, stop, data_path, save_path, grid_info, grid_method)
+    save_average(start, stop, data_path, save_path, grid_info, grid_method)
 
 if __name__ == '__main__':
     omi.verbosity = __verbosity__ - 1
