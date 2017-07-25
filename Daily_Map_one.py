@@ -38,7 +38,7 @@ NAME2DATASET_NO2 = {}
 omi.he5.create_name2dataset(
     '/HDFEOS/SWATHS/ColumnAmountNO2/Data Fields',
     ['CloudRadianceFraction', 'CloudPressure', 'ColumnAmountNO2Trop',
-     'ColumnAmountNO2TropStd', 'RootMeanSquareErrorOfFit',
+     'ColumnAmountNO2TropStd', #'RootMeanSquareErrorOfFit',
      'VcdQualityFlags', 'XTrackQualityFlags'],
     NAME2DATASET_NO2
 )
@@ -51,15 +51,15 @@ omi.he5.create_name2dataset(
 
 
 def preprocessing(gridding_method, Time, ColumnAmountNO2Trop,
-    ColumnAmountNO2TropStd, FoV75Area, CloudRadianceFraction,
-    RootMeanSquareErrorOfFit, SolarZenithAngle, VcdQualityFlags,
+    ColumnAmountNO2TropStd, FoV75Area, CloudRadianceFraction, #RootMeanSquareErrorOfFit,
+    SolarZenithAngle, VcdQualityFlags,
     XTrackQualityFlags, **kwargs):
 
     # mask of bad values
     mask = ColumnAmountNO2Trop.mask | ColumnAmountNO2TropStd.mask
 
     # mask low quality data
-    mask |= RootMeanSquareErrorOfFit > 0.0003
+    #mask |= RootMeanSquareErrorOfFit > 0.0003
     mask |= SolarZenithAngle > 85
     mask |= VcdQualityFlags % 2 != 0
     mask |= XTrackQualityFlags != 0
@@ -94,10 +94,10 @@ def main(start_date, end_date, gridding_method, grid_name, data_path):
     #grid_name = "NewAsia"
     #grid = omi.Grid(llcrnrlat=40.0, urcrnrlat=55.0,llcrnrlon=-5.0, urcrnrlon=20.0, resolution=0.002); grid_name = 'Germany'#7500*12500
     #grid = omi.Grid(llcrnrlat= 17.8 , urcrnrlat=53.6 ,llcrnrlon=96.9 , urcrnrlon= 106.8, resolution=0.01); #grid_name = 'Northamerica'#6000*4000
-    grid = omi.Grid(llcrnrlat= 48.1-0.5 , urcrnrlat=48.1+0.5 ,llcrnrlon=10.5 , urcrnrlon= 12.5, resolution=0.001); grid_name = 'Northamerica'#6000*4000
+    grid = omi.Grid(llcrnrlat= 25 , urcrnrlat=50.05,llcrnrlon=-125 , urcrnrlon= -64.95, resolution=0.05); #grid_name = 'Northamerica'#6000*4000
     # (b) or by reading this data from a JSON file
     #    (the default file can be found in omi/data/gridds.json)
-    grid = omi.Grid.by_name(grid_name)
+    #grid = omi.Grid.by_name(grid_name)
 
     # 2. Define parameter for PSM
     #    - gamma (smoothing parameter)
@@ -180,7 +180,7 @@ def main(start_date, end_date, gridding_method, grid_name, data_path):
     # 10) The Level 3 product can be saved as HDF5 file
     #     or converted to an image (requires matplotlib and basemap
     grid.save_as_he5('%s_%s_%s_%s_%s.he5' % (grid_name, str(start_date)[8:10],  str(start_date)[5:7],  str(start_date)[0:4], gridding_method))
-    grid.save_as_image('%s_%s_%s_%s_%s.png' % (grid_name, str(start_date)[8:10],str(start_date)[5:7],  str(start_date)[0:4], gridding_method), vmin=0, vmax=rho_est)
+    grid.save_as_image('%s_%s_%s_%s_%s.png' % (grid_name, str(start_date)[8:10],str(start_date)[5:7],  str(start_date)[0:4], gridding_method), vmin=0, vmax=1e16)
     #grid.save_as_image('%s_%s_%s_%s_%s.he5' % ( str(start_date)[8:10],  str(start_date)[5:7],  str(start_date)[0:4], grid_name, gridding_method), vmin=0, vmax=rho_est)
 
     # 11) It is possible to set values, errors and weights to zero.
@@ -201,14 +201,14 @@ if __name__ == '__main__':
     # or
     #    "/home/gerrit/Data/OMI/OMNO2.003/level2/2006/123/*.he5"
     #data_path = '/home/gerrit/Data/OMI'
-    data_path = '/home/zoidberg/OMI'
+    data_path = '/Volumes/share-sat/SAT/OMI/PSM_Links'
 
     # The start and end date of Level 2 data you want to grid. The end_date
     # is NOT included!
     
     
     # Name of the level 3 grid
-    grid_name = 'prd'
+    grid_name = 'us'
     # Year name
     
     """
@@ -243,12 +243,12 @@ if __name__ == '__main__':
     
 
     """
-    year = 2012
-    month = 4
-    day = 6
+    year = 2013
+    month = 6
+    day = 1
     
     start_date = datetime(year,month,day)
-    end_date = datetime(year,month,day+1)
+    end_date = datetime(year,month,day+7)
     """
     print "start_date =", start_date 
 
