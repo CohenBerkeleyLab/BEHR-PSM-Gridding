@@ -8,20 +8,22 @@ import pdb
 import re
 from scipy.spatial.qhull import QhullError
 
+from ospy.hdf5 import saveh5 # debugging only
+
 # This must be built and installed from the omi subdirectory. See omi/help.txt for instructions.
 import omi
 
 __author__ = 'Josh'
 __verbosity__ = 1
 
-
+save_swath = 1
 
 # Define the datasets that need to be loaded from BEHR files
 behr_datasets = ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
                  'FoV75Area', 'FoV75CornerLatitude', 'FoV75CornerLongitude',
                  'Latitude', 'Longitude', 'SpacecraftAltitude', 'SpacecraftLatitude', 'SpacecraftLongitude',
-                 'CloudRadianceFraction', 'CloudPressure', 'BEHRColumnAmountNO2Trop', 'ColumnAmountNO2TropStd',
-                 'BEHRAMFTrop', 'vcdQualityFlags', 'XTrackQualityFlags', 'SolarZenithAngle', 'Time']
+                 'CloudRadianceFraction', 'CloudPressure', 'BEHRColumnAmountNO2Trop', 'ColumnAmountNO2Trop',
+                 'ColumnAmountNO2TropStd', 'BEHRAMFTrop', 'VcdQualityFlags', 'XTrackQualityFlags', 'SolarZenithAngle', 'Time']
 
 
 def behr_version():
@@ -55,14 +57,16 @@ def behr_version():
                     return m.group()
 
 
-
-def behr_preprocessing(BEHRColumnAmountNO2Trop, ColumnAmountNO2TropStd, BEHRAMFTrop, SolarZenithAngle, vcdQualityFlags,
+def behr_preprocessing(gridding_method, BEHRColumnAmountNO2Trop, ColumnAmountNO2TropStd, BEHRAMFTrop, SolarZenithAngle, VcdQualityFlags,
                        XTrackQualityFlags, CloudRadianceFraction, FoV75Area, **kwargs):
     """
     Preprocesses a dictionary of datasets from BEHR files. If the dictionary is "data", then it should be passed to this
-    function using the ** syntax, i.e. preprocessing(**data). This will use the dictionary keys as keywords and the dict
-    values as the values associated with those keywords. This helps keep the code here cleaner and makes clear what
-    keys in the dictionary are required, which are:
+    function using the ** syntax, i.e. preprocessing(gridding_method, **data). The first input must be the gridding
+    method string, which should be 'psm' or 'cvm'.
+    :param gridding_method
+
+    The dictionary keys of data will be used as as keywords and the dict values as the values associated with those
+    keywords. This helps keep the code here cleaner and makes clear what keys in the dictionary are required, which are:
     :param BEHRColumnAmountNO2Trop
     :param ColumnAmountNO2TropStd
     :param SolarZenithAngle
@@ -75,11 +79,12 @@ def behr_preprocessing(BEHRColumnAmountNO2Trop, ColumnAmountNO2TropStd, BEHRAMFT
     keywords that this function doesn't understand.
     :param kwargs
 
-    Returns:
+    Returns (from preprocessing):
     :return:    values - masked array of BEHRColumnAmountNO2Trop values
                 errors - masked array of ColumnAmountNO2TropStd values
                 stddev - masked array of assumed standard deviations that increase linearly with Cloud Rad. Fraction
-                weights - masked array of weights as the inverse of the pixel area (FoV75Area)
+                weights - masked array of weights as the inverse of the pixel area (FoV75Area) if using PSM, or the
+                    inverse of (pixel area * std dev.**2) for CVM.
     """
 
     # mask bad values - BEHR does not have its own std. deviation value. Very small AMFs typically indicate something
@@ -90,33 +95,109 @@ def behr_preprocessing(BEHRColumnAmountNO2Trop, ColumnAmountNO2TropStd, BEHRAMFT
 
     # mask low quality data
     mask |= SolarZenithAngle > 85
-    mask |= vcdQualityFlags % 2 != 0
+    mask |= VcdQualityFlags % 2 != 0
     mask |= XTrackQualityFlags != 0
 
+    return preprocessing(gridding_method=gridding_method, no2_column=BEHRColumnAmountNO2Trop, no2_column_std=ColumnAmountNO2TropStd,
+                         cloud_radiance_fraction=CloudRadianceFraction, fov75_area=FoV75Area, mask=mask)
+
+def sp_preprocessing(gridding_method, ColumnAmountNO2Trop, ColumnAmountNO2TropStd, FoV75Area, CloudRadianceFraction,
+    SolarZenithAngle, VcdQualityFlags, XTrackQualityFlags, **kwargs):
+    """
+    Preprocesses a dictionary of datasets from BEHR files, using the NASA standard column as the values instead of the
+    BEHR columns. If the dictionary is "data", then it should be passed to this function using the ** syntax, i.e.
+    preprocessing(gridding_method, **data). The first input must be the gridding method string, which should be 'psm' or
+    'cvm'.
+    :param gridding_method
+
+    The dictionary keys of data will be used as as keywords and the dict values as the values associated with those
+    keywords. This helps keep the code here cleaner and makes clear what keys in the dictionary are required, which are:
+    :param BEHRColumnAmountNO2Trop
+    :param ColumnAmountNO2TropStd
+    :param SolarZenithAngle
+    :param vcdQualityFlags
+    :param XTrackQualityFlags
+    :param CloudRadianceFraction
+    :param FoV75Area
+
+    kwargs then just holds the remainder and ensures nothing weird happens because we tried to pass arguments with
+    keywords that this function doesn't understand.
+    :param kwargs
+
+    Returns (from preprocessing):
+    :return:    values - masked array of BEHRColumnAmountNO2Trop values
+                errors - masked array of ColumnAmountNO2TropStd values
+                stddev - masked array of assumed standard deviations that increase linearly with Cloud Rad. Fraction
+                weights - masked array of weights as the inverse of the pixel area (FoV75Area) if using PSM, or the
+                    inverse of (pixel area * std dev.**2) for CVM.
+    """
+    # mask of bad values
+    mask = ColumnAmountNO2Trop.mask | ColumnAmountNO2TropStd.mask
+
+    # mask low quality data
+    mask |= SolarZenithAngle > 85
+    mask |= VcdQualityFlags % 2 != 0
+    mask |= XTrackQualityFlags != 0
+
+    return preprocessing(gridding_method=gridding_method, no2_column=ColumnAmountNO2Trop, no2_column_std=ColumnAmountNO2TropStd,
+                         cloud_radiance_fraction=CloudRadianceFraction, fov75_area=FoV75Area, mask=mask)
+
+
+def preprocessing(gridding_method, no2_column, no2_column_std, cloud_radiance_fraction, fov75_area, mask):
+    """
+    Subordinate preprocessing function that should be called from the specialized preprocessing function for individual
+    columns. The specialized preprocessing function should create the mask to remove unwanted values (i.e. row anomaly
+    or pixels with processing errors) and then pass the specified values to this function.
+
+    :param gridding_method: the gridding method ('psm' or 'cvm') as a string
+    :param no2_column: the tropospheric column to grid as a numpy array
+    :param no2_column_std: the standard error of the tropospheric column as a numpy array
+    :param cloud_radiance_fraction: the cloud radiance fraction as a numpy array
+    :param fov75_area: the FoV75 area as a numpy array; this should have a length of 1 in the along-track dimension and
+        length 60 in the across track dimension (except maybe on zoom mode days)
+    :param mask: a boolean array that is true where column values should not be used (e.g. row anomaly)
+
+    Returns:
+    :return:    values - masked array of BEHRColumnAmountNO2Trop values
+                errors - masked array of ColumnAmountNO2TropStd values
+                stddev - masked array of assumed standard deviations that increase linearly with Cloud Rad. Fraction
+                weights - masked array of weights as the inverse of the pixel area (FoV75Area) if using PSM, or the
+                    inverse of (pixel area * std dev.**2) for CVM.
+    """
+
     # set invalid cloud cover to 100% -> smallest weight
-    CloudRadianceFraction[CloudRadianceFraction.mask] = 1.0
+    cloud_radiance_fraction[cloud_radiance_fraction.mask] = 1.0
 
     # VCD values and errors
-    values = ma.array(BEHRColumnAmountNO2Trop, mask=mask)
-    errors = ma.array(ColumnAmountNO2TropStd, mask=mask)
+    values = ma.array(no2_column, mask=mask)
+    errors = ma.array(no2_column_std, mask=mask)
 
     # weight based on stddev and pixel area (see Wenig et al. 2008)
-    stddev = 1.5e15 * (1.0 + 3.0 * ma.array(CloudRadianceFraction, mask=mask))
-    area = FoV75Area.reshape((1, FoV75Area.size))
-    area = area.repeat(BEHRColumnAmountNO2Trop.shape[0], axis=0)
+    stddev = 1.5e15 * (1.0 + 3.0 * ma.array(cloud_radiance_fraction, mask=mask))
+    area = fov75_area.reshape((1, fov75_area.size))
+    area = area.repeat(no2_column.shape[0], axis=0)
 
-    weights = ma.array(1.0 / area, mask=mask)
+    if gridding_method.lower() == 'psm':
+        weights = ma.array(1.0 / area, mask=mask)
+    elif gridding_method.lower() == 'cvm':
+        weights = ma.array(1.0 / (area * stddev**2), mask=mask)
+    else:
+        raise NotImplementedError('No weighting formula specified for gridding method {}'.format(gridding_method))
 
     return values, errors, stddev, weights
 
 
-def generate_filename(save_path, gridding_method, date_in, date_end=None):
+def generate_filename(save_path, gridding_method, column_product, date_in, date_end=None):
     if date_end is None:
-        fname = 'OMI_BEHR_{2}_{0}_{1}.he5'.format(behr_version(), date_in.strftime('%Y%m%d'), gridding_method.upper())
+        fname = 'OMI_{3}_{2}_{0}_{1}.he5'.format(behr_version(),
+                                                 date_in.strftime('%Y%m%d'),
+                                                 gridding_method.upper(),
+                                                 column_product.upper())
     else:
-        fname = 'OMI_BEHR_{3}_{0}_{1}-{2}.he5'.format(behr_version(),
+        fname = 'OMI_{3}_{4}_{0}_{1}-{2}.he5'.format(behr_version(),
                                                       date_in.strftime('%Y%m%d'),
                                                       date_end.strftime('%Y%m%d'),
+                                                      column_product.upper(),
                                                       gridding_method.upper())
     return os.path.join(save_path, fname)
 
@@ -134,7 +215,7 @@ def make_grid(grid_info):
 
 
 
-def grid_day_from_file(behr_file, grid_info, grid_method):
+def grid_day_from_file(behr_file, grid_info, grid_method, column_product):
     day_grid = make_grid(grid_info)
     day_grid.zero() # ensure that values and weights are zeroed (just in case, Annette from Mark's group seems to be
                     # concerned that grids be zeroed out, though it seems like they really should start zeroed)
@@ -142,7 +223,7 @@ def grid_day_from_file(behr_file, grid_info, grid_method):
     for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(behr_file, behr_datasets):
         if __verbosity__ > 0:
             print(' Gridding orbit no. {0}'.format(orbit_num))
-        vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method)
+        vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product)
         if vals is not None:
             day_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
             day_grid.weights += weights
@@ -151,18 +232,18 @@ def grid_day_from_file(behr_file, grid_info, grid_method):
     return day_grid
 
 
-def save_individual_days(start_date, end_date, data_path, save_path, grid_info, grid_method):
+def save_individual_days(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr'):
     for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
         if __verbosity__ > 0:
             print('Working on file {0}'.format(filename))
-        day_grid = grid_day_from_file(filename, grid_info, grid_method)
+        day_grid = grid_day_from_file(filename, grid_info, grid_method=grid_method, column_product=column_product)
         mobj = re.search('\d\d\d\d\d\d\d\d', filename)
         behr_date = datetime.datetime.strptime(mobj.group(), '%Y%m%d')
-        save_name = generate_filename(save_path, grid_method, behr_date)
+        save_name = generate_filename(save_path, grid_method, column_product, behr_date)
         day_grid.save_as_he5(save_name)
 
 
-def multi_day_average(start_date, end_date, data_path, grid_info, grid_method):
+def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, column_product):
     avg_grid = make_grid(grid_info)
     avg_grid.zero()
     for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
@@ -173,7 +254,9 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method):
             if __verbosity__ > 0:
                 print(' Gridding orbit no. {0}'.format(orbit_num))
 
-            vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method)
+
+            swath_name = 'pm-o{}.he5'.format(orbit_num) # debugging only
+            vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product, save_swath=swath_name)
             if vals is not None:
                 avg_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
                 avg_grid.weights += weights
@@ -182,13 +265,13 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method):
     return avg_grid
 
 
-def save_average(start_date, end_date, data_path, save_path, grid_info, grid_method):
-    avg = multi_day_average(start_date, end_date, data_path, grid_info, grid_method)
-    save_name = generate_filename(save_path, grid_method, start_date, end_date)
+def save_average(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr'):
+    avg = multi_day_average(start_date, end_date, data_path, grid_info, grid_method, column_product=column_product)
+    save_name = generate_filename(save_path, grid_method, column_product, start_date, end_date)
     avg.save_as_he5(save_name)
 
 
-def grid_orbit(data, grid_info, gridding_method='psm'):
+def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', save_swath='pm.he5'): #save_swath is debugging only
     # Input checking
     if not isinstance(data, dict):
         raise TypeError('data must be a dict')
@@ -224,8 +307,14 @@ def grid_orbit(data, grid_info, gridding_method='psm'):
     #    - estimate of stddev (used in PSM)
     #    - weight of each measurement
     if __verbosity__ > 1:
-        print('    Doing preprocessing')
-    values, errors, stddev, weights = behr_preprocessing(**data)
+        print('    Doing {} preprocessing'.format(column_product))
+    if column_product.lower() == 'behr':
+        values, errors, stddev, weights = behr_preprocessing(gridding_method, **data)
+    elif column_product.lower() == 'sp':
+        values, errors, stddev, weights = sp_preprocessing(gridding_method, **data)
+    else:
+        raise NotImplementedError('No preprocessing option for column_product={}'.format(column_product))
+
     missing_values = values.mask.copy()
 
     if np.all(values.mask):
@@ -284,11 +373,14 @@ def grid_orbit(data, grid_info, gridding_method='psm'):
         grid_values = np.nan_to_num(np.array(grid.values))
     elif gridding_method == 'cvm':
         try:
-            grid = omi.cvm_grid(grid, data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+            grid = omi.cvm_grid(grid, data['FoV75CornerLongitude'], data['FoV75CornerLatitude'],
                                 values, errors, weights, missing_values)
         except QhullError as err:
             print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
             return None, None
+
+        saveh5(save_swath, gridvalues=grid.values, gridweights=grid.weights, values=values, weights=weights, stddev=stddev,
+               slon=data['Longitude'], slat=data['Latitude'], crf=data['CloudRadianceFraction'])
 
         wgrid_values = np.nan_to_num(grid.weights)
         grid.norm()
@@ -299,18 +391,22 @@ def grid_orbit(data, grid_info, gridding_method='psm'):
     return grid_values, wgrid_values
 
 def main():
-    start = datetime.datetime(2015, 6, 1)
-    #stop = datetime.datetime(2015, 6, 2)
-    stop = datetime.datetime(2015, 8, 31)
+    start = datetime.datetime(2013, 6, 1)
+    stop = datetime.datetime(2013, 6, 2)
+    #stop = datetime.datetime(2013, 8, 31)
 
     grid_info = {'llcrnrlat': 25.0, 'urcrnrlat': 50.05, 'llcrnrlon': -125.0, 'urcrnrlon': -64.95, 'resolution': 0.05}
     grid_method = 'cvm'
+    product = 'sp'
 
-    data_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'  # where OMI-raw- data is saved
-    save_path = '/Users/Josh/Documents/MATLAB/BEHR/Workspaces/PSM-Comparison/Tests/UpdateBranch'  # path, where you want to save your data
+    #data_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'  # where OMI-raw- data is saved
+    data_path = '/Volumes/share-sat/SAT/BEHR/PSM_Tests'
+    #save_path = '/Users/Josh/Documents/MATLAB/BEHR/Workspaces/PSM-Comparison/Tests/UpdateBranch'  # path, where you want to save your data
+    save_path = os.path.dirname(__file__)
+    print('Will save to', save_path)
 
-    #save_individual_days(start, stop, data_path, save_path, grid_info, grid_method)
-    save_average(start, stop, data_path, save_path, grid_info, grid_method)
+    #save_individual_days(start, stop, data_path, save_path, grid_info, grid_method, column_product=product)
+    save_average(start, stop, data_path, save_path, grid_info, grid_method, column_product=product)
 
 if __name__ == '__main__':
     omi.verbosity = __verbosity__ - 1
