@@ -63,7 +63,6 @@ def preprocessing(gridding_method, Time, ColumnAmountNO2Trop,
     mask |= SolarZenithAngle > 85
     mask |= VcdQualityFlags % 2 != 0
     mask |= XTrackQualityFlags != 0
-    
 
     # set invalid cloud cover to 100% -> smallest weight
     CloudRadianceFraction[CloudRadianceFraction.mask] = 1.0
@@ -125,6 +124,12 @@ def main(start_date, end_date, gridding_method, grid_name, data_path):
     for timestamp, orbit, data in omi.he5.iter_orbits(
             start_date, end_date, products, name2datasets, data_path
         ):
+
+        # debugging check: this loop is occasionally getting what I consider night time swaths that just barely cross
+        # the top of the domain. I deliberately remove those, even though they may be illuminated
+        print 'timestamp =', timestamp
+        if timestamp.hour < 15:
+            continue
 
         # 5) Check for missing corner coordinates, i.e. the zoom product,
         #    which is currently not supported
