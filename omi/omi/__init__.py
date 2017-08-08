@@ -72,6 +72,8 @@ class Grid(object):
         self.lon = np.arange(llcrnrlon, urcrnrlon, self.resolution, dtype='float64')
         self.lat = np.arange(llcrnrlat, urcrnrlat, self.resolution, dtype='float64')
 
+        self._shape = (self.lon.size, self.lat.size)
+
         self.values = np.zeros(self.shape, dtype='float64')
         self.errors = np.zeros(self.shape, dtype='float64')
         self.weights = np.zeros(self.shape, dtype='float64')
@@ -94,9 +96,15 @@ class Grid(object):
 
     @property
     def shape(self):
-        n = int(round((self.urcrnrlon - self.llcrnrlon) / self.resolution))
-        m = int(round((self.urcrnrlat - self.llcrnrlat) / self.resolution))
-        return n, m
+        """
+        Return the dimensions of the grid (lon x lat)
+        :return: tuple, (lon.size, lat.size)
+        """
+        # The previous version that calculated the shape from the corner points was subject to rounding error if the
+        # end point isn't the next grid point. (e.g. lon = [-124.975, -65.0], lat = [25.025, 50]. That caused an error
+        # in cgrate when the lon vector (in this case) was longer than the shape in the longitudinal direction, since
+        # the values had the wrong shape.
+        return self._shape
 
 
     def save_as_he5(self, filename):

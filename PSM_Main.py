@@ -89,7 +89,7 @@ def behr_preprocessing(gridding_method, BEHRColumnAmountNO2Trop, ColumnAmountNO2
 
     # mask bad values - BEHR does not have its own std. deviation value. Very small AMFs typically indicate something
     # went wrong in the processing. This should probably be corrected in the BEHR algorithm itself
-    amfmask = np.array(BEHRAMFTrop < 1e-5)
+    amfmask = (BEHRAMFTrop < 1e-5).filled(True)  # this ensures that masked values remain masked
     cldmask = CloudRadianceFraction > 2.5
     mask = BEHRColumnAmountNO2Trop.mask | ColumnAmountNO2TropStd.mask | amfmask | cldmask
 
@@ -212,18 +212,21 @@ def make_grid(grid_info):
             raise KeyError('If given as a dict, grid_info must have the keys: {0}'.format(', '.join(req_keys)))
 
         return omi.Grid(**grid_info)
+    else:
+        raise NotImplementedError('Cannot make a grid from input of type {}'.format(type(grid_info)))
 
 
 
-def grid_day_from_file(behr_file, grid_info, grid_method, column_product):
+def grid_day_from_file(behr_file, grid_info, grid_method, column_product, verbosity=0):
     day_grid = make_grid(grid_info)
     day_grid.zero() # ensure that values and weights are zeroed (just in case, Annette from Mark's group seems to be
                     # concerned that grids be zeroed out, though it seems like they really should start zeroed)
 
     for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(behr_file, behr_datasets):
-        if __verbosity__ > 0:
+        if verbosity > 0:
             print(' Gridding orbit no. {0}'.format(orbit_num))
-        vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product)
+        vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product,
+                                   verbosity=verbosity)
         if vals is not None:
             day_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
             day_grid.weights += weights
@@ -232,31 +235,67 @@ def grid_day_from_file(behr_file, grid_info, grid_method, column_product):
     return day_grid
 
 
-def save_individual_days(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr'):
+def grid_day_from_interface(behr_data, behr_grid, grid_method, column_product, verbosity=0):
+    if isinstance(behr_data, dict):
+        behr_data = [behr_data]
+    elif isinstance(behr_data, (list, tuple)):
+        if any([not isinstance(x, dict) for x in behr_data]):
+            raise TypeError('If given as a list/tuple, all child elements of behr_data must be dicts')
+    else:
+        raise TypeError('behr_data must be a dict or a list/tuple of dicts')
+
+    if not isinstance(behr_grid, dict):
+        raise TypeError('behr_grid must be a dict')
+
+    if not isinstance(grid_method, str):
+        raise TypeError('grid_method must be a string')
+
+    if not isinstance(column_product, str):
+        raise TypeError('column_product must be a string')
+
+    day_grid = make_grid(behr_grid)
+    day_grid.zero()
+
+    for data in behr_data:
+        if verbosity > 0:
+            print('Gridding swath {} of {}'.format(behr_data.index(data)+1, len(behr_data)))
+
+        vals, weights = grid_orbit(data, behr_grid, gridding_method=grid_method, column_product=column_product,
+                                   verbosity=verbosity)
+        if vals is not None:
+            day_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
+            day_grid.weights += weights
+
+    day_grid.norm()
+    return day_grid
+
+
+def save_individual_days(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr',
+                         verbosity=0):
     for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
-        if __verbosity__ > 0:
+        if verbosity > 0:
             print('Working on file {0}'.format(filename))
-        day_grid = grid_day_from_file(filename, grid_info, grid_method=grid_method, column_product=column_product)
+        day_grid = grid_day_from_file(filename, grid_info, grid_method=grid_method, column_product=column_product,
+                                      verbosity=verbosity)
         mobj = re.search('\d\d\d\d\d\d\d\d', filename)
         behr_date = datetime.datetime.strptime(mobj.group(), '%Y%m%d')
         save_name = generate_filename(save_path, grid_method, column_product, behr_date)
         day_grid.save_as_he5(save_name)
 
 
-def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, column_product):
+def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, column_product, verbosity=0):
     avg_grid = make_grid(grid_info)
     avg_grid.zero()
     for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
-        if __verbosity__ > 0:
+        if verbosity > 0:
             print('Working on file {0}'.format(filename))
 
         for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(filename, behr_datasets):
-            if __verbosity__ > 0:
+            if verbosity > 0:
                 print(' Gridding orbit no. {0}'.format(orbit_num))
 
-
-            swath_name = 'pm-o{}.he5'.format(orbit_num) # debugging only
-            vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product, save_swath=swath_name)
+            vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product,
+                                       verbosity=verbosity)
             if vals is not None:
                 avg_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
                 avg_grid.weights += weights
@@ -265,13 +304,14 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, c
     return avg_grid
 
 
-def save_average(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr'):
-    avg = multi_day_average(start_date, end_date, data_path, grid_info, grid_method, column_product=column_product)
+def save_average(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr', verbosity=0):
+    avg = multi_day_average(start_date, end_date, data_path, grid_info, grid_method, column_product=column_product,
+                            verbosity=verbosity)
     save_name = generate_filename(save_path, grid_method, column_product, start_date, end_date)
     avg.save_as_he5(save_name)
 
 
-def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', save_swath='pm.he5'): #save_swath is debugging only
+def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', verbosity=0):
     # Input checking
     if not isinstance(data, dict):
         raise TypeError('data must be a dict')
@@ -306,7 +346,7 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', sa
     #    - measurement errors (used in CVM, not PSM)
     #    - estimate of stddev (used in PSM)
     #    - weight of each measurement
-    if __verbosity__ > 1:
+    if verbosity > 1:
         print('    Doing {} preprocessing'.format(column_product))
     if column_product.lower() == 'behr':
         values, errors, stddev, weights = behr_preprocessing(gridding_method, **data)
@@ -318,12 +358,12 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', sa
     missing_values = values.mask.copy()
 
     if np.all(values.mask):
-        return None, None  # two outputs expected, causes a "None object not iterable" error
+        return None, None  # two outputs expected, causes a "None object not iterable" error if only one given
 
     new_weight = weights / np.sqrt(
         (np.abs((errors / 1e15) * (1 + 2 * data['CloudRadianceFraction'] ** 2))))  # **(1.0/2.0)
 
-    if __verbosity__ > 1:
+    if verbosity > 1:
         print('    Gridding VCDs')
 
     if gridding_method == 'psm':
@@ -347,7 +387,7 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', sa
         gamma = omi.compute_smoothing_parameter(40.0, 40.0)
         rho_est = 4
 
-        if __verbosity__ > 1:
+        if verbosity > 1:
             print('    Gridding weights')
 
         try:
@@ -379,9 +419,6 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', sa
             print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
             return None, None
 
-        saveh5(save_swath, gridvalues=grid.values, gridweights=grid.weights, values=values, weights=weights, stddev=stddev,
-               slon=data['Longitude'], slat=data['Latitude'], crf=data['CloudRadianceFraction'])
-
         wgrid_values = np.nan_to_num(grid.weights)
         grid.norm()
         grid_values = np.nan_to_num(grid.values)
@@ -390,24 +427,63 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', sa
 
     return grid_values, wgrid_values
 
-def main():
+def imatlab_gridding(data_in, grid_in, verbosity=0):
+    # This is the interface function that should be called from Matlab to pass the Data structure as a list of
+    # dictionaries. The conversion should happen on the Matlab side. This will verify that the required fields are
+    # present in the dictionary
+    omi.verbosity = verbosity - 1
+
+    if isinstance(data_in, dict):
+        test_data = data_in
+        data_in = [data_in]
+    elif isinstance(data_in, (list, tuple)):
+        test_data = data_in[0]
+        if any([not isinstance(x, dict) for x in data_in]):
+            raise TypeError('If given as a list/tuple, all child elements of data_in must be dicts')
+    else:
+        raise TypeError('data_in must be a dict or a list/tuple of dicts')
+
+    # Validate the fields present
+    missing_fields = []
+    field_type_warn = []
+    for name in behr_datasets:
+        if name not in test_data:
+            missing_fields.append(name)
+        elif type(test_data[name]) is not np.ndarray:
+            s = '{0} {1}'.format(name, type(test_data[name]))
+            field_type_warn.append(s)
+
+    if len(missing_fields) > 0:
+        raise KeyError('Required fields are missing: {}'.format(', '.join(missing_fields)))
+    elif len(field_type_warn) > 0:
+        print('WARNING: Some fields are not of type numpy.array:')
+        print('\n'.join(field_type_warn))
+
+    for swath in data_in:
+        for k, v in swath.items():
+            swath[k] = np.ma.masked_invalid(v)
+
+    return grid_day_from_interface(data_in, grid_in, 'psm', 'behr', verbosity=verbosity)
+
+def main(verbosity=0):
     start = datetime.datetime(2013, 6, 1)
     stop = datetime.datetime(2013, 6, 2)
     #stop = datetime.datetime(2013, 8, 31)
 
-    grid_info = {'llcrnrlat': 25.0, 'urcrnrlat': 50.05, 'llcrnrlon': -125.0, 'urcrnrlon': -64.95, 'resolution': 0.05}
-    grid_method = 'cvm'
-    product = 'sp'
+    grid_info = {'llcrnrlat': 25.025, 'urcrnrlat': 50.0, 'llcrnrlon': -124.9750, 'urcrnrlon': -65.0, 'resolution': 0.05}
+    #grid_info = {'llcrnrlat': 25.0, 'urcrnrlat': 50.05, 'llcrnrlon': -125.0, 'urcrnrlon': -64.95, 'resolution': 0.05}
+    grid_method = 'psm'
+    product = 'behr'
 
     #data_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'  # where OMI-raw- data is saved
-    data_path = '/Volumes/share-sat/SAT/BEHR/PSM_Tests'
+    data_path = '/Volumes/share-sat/SAT/BEHR/PSM_Tests_newprofiles'
     #save_path = '/Users/Josh/Documents/MATLAB/BEHR/Workspaces/PSM-Comparison/Tests/UpdateBranch'  # path, where you want to save your data
     save_path = os.path.dirname(__file__)
     print('Will save to', save_path)
 
-    #save_individual_days(start, stop, data_path, save_path, grid_info, grid_method, column_product=product)
-    save_average(start, stop, data_path, save_path, grid_info, grid_method, column_product=product)
+    #save_individual_days(start, stop, data_path, save_path, grid_info, grid_method, column_product=product, verbosity=verbosity)
+    save_average(start, stop, data_path, save_path, grid_info, grid_method, column_product=product, verbosity=verbosity)
 
 if __name__ == '__main__':
     omi.verbosity = __verbosity__ - 1
-    main()
+    main(verbosity=__verbosity__)

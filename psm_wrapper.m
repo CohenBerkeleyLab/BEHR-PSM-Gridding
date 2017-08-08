@@ -1,18 +1,25 @@
-function [ OMI_PSM ] = psm_wrapper( Data )
+function [ OMI_PSM ] = psm_wrapper( Data, BEHR_Grid, DEBUG_LEVEL )
 %PSM_WRAPPER Matlab routine that serves as an interface to the Python PSM code
 %  	[ OMI_PSM ] = PSM_WRAPPER( DATA ) Takes a "Data" structure from BEHR
 %  	and passes it to the PSM Python code, taking care to handle the
 %  	necessary type conversions between Matlab and Python types.
 
 E = JLLErrors;
+
+if ~exist('DEBUG_LEVEL', 'var')
+    DEBUG_LEVEL = 0;
+end
+
+% Add the directory containing the PSM code to the Python search path if it
+% isn't there.
+psm_dir = behr_paths.psm_dir;
+if count(py.sys.path, psm_dir) == 0
+    insert(py.sys.path, int32(0), psm_dir);
+end
+
 % These are the fields required by the PSM algorithm. 
-req_fields = {'TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',...
-              'FoV75Area', 'FoV75CornerLatitude', 'FoV75CornerLongitude',...
-              'Latitude', 'Longitude', 'SpacecraftAltitude', 'SpacecraftLatitude',...
-              'SpacecraftLongitude', 'CloudRadianceFraction', 'CloudPressure',...
-              'BEHRColumnAmountNO2Trop', 'ColumnAmountNO2TropStd', 'RootMeanSquareErrorOfFit',...
-              'vcdQualityFlags', 'XTrackQualityFlags', 'SolarZenithAngle',...
-              'Time'};
+req_fields = pylist2cell(py.PSM_Main.behr_datasets);
+
 xx = ~isfield(Data, req_fields);   
 if any(xx)
     E.badinput('DATA is missing the required fields: %s', strjoin(req_fields(xx), ', '));
@@ -49,15 +56,10 @@ end
 % Will convert Data structure to a dictionary (or list of dictionaries)
 pydata = struct2pydict(Data);
 
-% Next call the PSM gridding algorithm. Add the directory containing the
-% PSM code to the Python search path if it isn't there.
-psm_dir = BEHR_paths('psm');
-if count(py.sys.path, psm_dir) == 0
-    insert(py.sys.path, int32(0), psm_dir);
-end
+% Next call the PSM gridding algorithm. 
 %mod = py.importlib.import_module('BEHRDaily_Map');
 %py.reload(mod);
-pgrid = py.BEHRDaily_Map.imatlab_gridding(pydata);
+pgrid = py.PSM_Main.imatlab_gridding(pydata, BEHR_Grid.OmiGridInfo(), DEBUG_LEVEL);
 
 % Finally return the average array to a Matlab one. This provides one
 % average grid for the day. We also convert the lat/lon vectors into full
