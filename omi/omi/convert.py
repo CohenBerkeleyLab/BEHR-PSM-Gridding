@@ -19,8 +19,10 @@
 
 
 from __future__ import division
+import datetime as dt
 import numpy as np
 import numpy.ma as ma
+
 
 
 def rect2sphere(vector, degree=True):
@@ -73,6 +75,43 @@ def sphere2rect(vector, degree=True):
         (r * np.cos(lat) * np.sin(lon))[np.newaxis],
         (r * np.sin(lat))[np.newaxis]
     ])
+
+def tai93toDatetime(tai93):
+    """
+    Converts and OMI TAI93 time code to a Python datetime object.
+    :param tai93: a TAI93 time code
+    :return: a Python datetime.datetime object representing the TAI93 time code
+
+    TAI93 is a time specification that gives time as the number of seconds since midnight, Jan 1st, 1993. Leap seconds
+    were added on:
+        1 Jul 1993
+        1 Jul 1994
+        1 Jan 1996
+        1 Jul 1997
+        1 Jan 1999
+        1 Jan 2006
+        1 Jan 2009
+        1 Jul 2012
+        1 Jul 2015
+    Since Python's datetime module does not account for these, we will account for them here.
+    """
+
+    base_dt = dt.datetime(1993, 1, 1, 0, 0, 0)
+    leap_sec = [dt.datetime(2015, 7, 1) - base_dt,
+                dt.datetime(2012, 7, 1) - base_dt,
+                dt.datetime(2009, 1, 1) - base_dt,
+                dt.datetime(2006, 1, 1) - base_dt,
+                dt.datetime(1999, 1, 1) - base_dt,
+                dt.datetime(1997, 7, 1) - base_dt,
+                dt.datetime(1996, 1, 1) - base_dt,
+                dt.datetime(1994, 7, 1) - base_dt,
+                dt.datetime(1993, 7, 1) - base_dt]
+
+    for ld in leap_sec:
+        if tai93 > ld.total_seconds():
+            tai93 -= 1
+
+    return base_dt + dt.timedelta(seconds=tai93)
 
 
 
