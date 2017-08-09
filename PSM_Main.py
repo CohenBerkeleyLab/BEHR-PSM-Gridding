@@ -162,7 +162,8 @@ def preprocessing(gridding_method, no2_column, no2_column_std, cloud_radiance_fr
                 errors - masked array of ColumnAmountNO2TropStd values
                 stddev - masked array of assumed standard deviations that increase linearly with Cloud Rad. Fraction
                 weights - masked array of weights as the inverse of the pixel area (FoV75Area) if using PSM, or the
-                    inverse of (pixel area * std dev.**2) for CVM.
+                    inverse of (pixel area * std dev.**2) for CVM. For PSM the weights also depend on the errors and
+                    cloud radiance fraction.
     """
 
     # set invalid cloud cover to 100% -> smallest weight
@@ -179,6 +180,7 @@ def preprocessing(gridding_method, no2_column, no2_column_std, cloud_radiance_fr
 
     if gridding_method.lower() == 'psm':
         weights = ma.array(1.0 / area, mask=mask)
+        weights = ma.array(weights/((errors/1e16)*(1.3 + 0.87*cloud_radiance_fraction))**2, mask=mask)
     elif gridding_method.lower() == 'cvm':
         weights = ma.array(1.0 / (area * stddev**2), mask=mask)
     else:
