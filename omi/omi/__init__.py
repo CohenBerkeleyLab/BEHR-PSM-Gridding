@@ -33,7 +33,6 @@ import omi.psm
 
 #import pyximport; pyximport.install()
 import omi.cgrate
-import pdb
 
 PACKAGE_DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
 

@@ -53,27 +53,34 @@ for a=1:numel(fns)
     end
 end
 
-% Will convert Data structure to a dictionary (or list of dictionaries)
-pydata = struct2pydict(Data);
+OMI_PSM = repmat(make_empty_struct_from_cell({'Longitude', 'Latitude', 'BEHRColumnAmountNO2Trop', 'Weights', 'Errors'}), size(Data));
 
-% Next call the PSM gridding algorithm. 
-%mod = py.importlib.import_module('BEHRDaily_Map');
-%py.reload(mod);
-pgrid = py.PSM_Main.imatlab_gridding(pydata, BEHR_Grid.OmiGridInfo(), DEBUG_LEVEL);
-
-% Finally return the average array to a Matlab one. This provides one
-% average grid for the day. We also convert the lat/lon vectors into full
-% arrays to match how the OMI structure in existing BEHR files is
-% organized.
-OMI_PSM.BEHRColumnAmountNO2Trop = numpyarray2matarray(pgrid.values)';
-OMI_PSM.Weights = numpyarray2matarray(pgrid.weights)';
-OMI_PSM.Errors = numpyarray2matarray(pgrid.errors)';
-
-lonvec = numpyarray2matarray(pgrid.lon);
-latvec = numpyarray2matarray(pgrid.lat);
-[longrid, latgrid] = meshgrid(lonvec, latvec);
-OMI_PSM.Longitude = longrid;
-OMI_PSM.Latitude = latgrid;
+for a=1:numel(Data)
+    if DEBUG_LEVEL > 0
+        fprintf('Gridding swath %d of %d\n', a, numel(Data))
+    end
+    % Will convert Data structure to a dictionary (or list of dictionaries)
+    pydata = struct2pydict(Data(a));
+    
+    % Next call the PSM gridding algorithm.
+    %mod = py.importlib.import_module('BEHRDaily_Map');
+    %py.reload(mod);
+    pgrid = py.PSM_Main.imatlab_gridding(pydata, BEHR_Grid.OmiGridInfo(), DEBUG_LEVEL);
+    
+    % Finally return the average array to a Matlab one. This provides one
+    % average grid for the day. We also convert the lat/lon vectors into full
+    % arrays to match how the OMI structure in existing BEHR files is
+    % organized.
+    OMI_PSM(a).BEHRColumnAmountNO2Trop = numpyarray2matarray(pgrid.values)';
+    OMI_PSM(a).Weights = numpyarray2matarray(pgrid.weights)';
+    OMI_PSM(a).Errors = numpyarray2matarray(pgrid.errors)';
+    
+    lonvec = numpyarray2matarray(pgrid.lon);
+    latvec = numpyarray2matarray(pgrid.lat);
+    [longrid, latgrid] = meshgrid(lonvec, latvec);
+    OMI_PSM(a).Longitude = longrid;
+    OMI_PSM(a).Latitude = latgrid;
+end
 
 
 end

@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import datetime
+from glob import glob
 import numpy as np
 import numpy.ma as ma
 import os
@@ -15,8 +16,7 @@ import omi
 
 __author__ = 'Josh'
 __verbosity__ = 1
-
-save_swath = 1
+__save_swath__ = False  # debugging only, remove the clauses controlled by that when you're done
 
 # Define the datasets that need to be loaded from BEHR files
 behr_datasets = ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
@@ -227,6 +227,7 @@ def grid_day_from_file(behr_file, grid_info, grid_method, column_product, verbos
             print(' Gridding orbit no. {0}'.format(orbit_num))
         vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product,
                                    verbosity=verbosity)
+
         if vals is not None:
             day_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
             day_grid.weights += weights
@@ -260,8 +261,31 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, column_product, v
         if verbosity > 0:
             print('Gridding swath {} of {}'.format(behr_data.index(data)+1, len(behr_data)))
 
+        if __save_swath__:
+            lastfile = sorted(glob('idata-pre_grid-*.he5'))
+            if len(lastfile) > 0:
+                lastfile = lastfile[-1]
+                i_swath = int(re.search('\d\d', lastfile).group())
+            else:
+                i_swath = 0
+            savename = 'idata-pre_grid-{:02d}.he5'.format(i_swath+1)
+            print('Saving as', savename)
+            saveh5(savename, data=data)
+
         vals, weights = grid_orbit(data, behr_grid, gridding_method=grid_method, column_product=column_product,
                                    verbosity=verbosity)
+
+        if __save_swath__:
+            lastfile = sorted(glob('idata-post_grid-*.he5'))
+            if len(lastfile) > 0:
+                lastfile = lastfile[-1]
+                i_swath = int(re.search('\d\d', lastfile).group())
+            else:
+                i_swath = 0
+            savename = 'idata-post_grid-{:02d}.he5'.format(i_swath+1)
+            print('Saving as', savename)
+            saveh5(savename, data=data, vals=vals, weights=weights)
+
         if vals is not None:
             day_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
             day_grid.weights += weights
@@ -296,6 +320,11 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, c
 
             vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product,
                                        verbosity=verbosity)
+
+            if __save_swath__:
+                saveh5('data-{:06d}.he5'.format(orbit_num), data=data)
+                saveh5('o-{:06d}.he5'.format(orbit_num), vals=vals, weights=weights)
+
             if vals is not None:
                 avg_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
                 avg_grid.weights += weights
@@ -443,6 +472,17 @@ def imatlab_gridding(data_in, grid_in, verbosity=0):
     else:
         raise TypeError('data_in must be a dict or a list/tuple of dicts')
 
+    if __save_swath__:
+        lastfile = sorted(glob('data-imatlab_gridding-pre_mask-*.he5'))
+        if len(lastfile) > 0:
+            lastfile = lastfile[-1]
+            i_swath = int(re.search('\d\d', lastfile).group())
+        else:
+            i_swath = 0
+        savename = 'data-imatlab_gridding-pre_mask-{:02d}.he5'.format(i_swath+1)
+        print('Saving', savename)
+        saveh5(savename, data=data_in[0])
+
     # Validate the fields present
     missing_fields = []
     field_type_warn = []
@@ -463,6 +503,17 @@ def imatlab_gridding(data_in, grid_in, verbosity=0):
         for k, v in swath.items():
             swath[k] = np.ma.masked_invalid(v)
 
+    if __save_swath__:
+        lastfile = sorted(glob('data-imatlab_gridding-post_mask-*.he5'))
+        if len(lastfile) > 0:
+            lastfile = lastfile[-1]
+            i_swath = int(re.search('\d\d', lastfile).group())
+        else:
+            i_swath = 0
+        savename = 'data-imatlab_gridding-post_mask-{:02d}.he5'.format(i_swath+1)
+        print('Saving', savename)
+        saveh5(savename, data=swath)
+
     return grid_day_from_interface(data_in, grid_in, 'psm', 'behr', verbosity=verbosity)
 
 def main(verbosity=0):
@@ -476,7 +527,7 @@ def main(verbosity=0):
     product = 'behr'
 
     #data_path = '/Volumes/share-sat/SAT/BEHR/WEBSITE/webData/PSM-Comparison/BEHR-PSM'  # where OMI-raw- data is saved
-    data_path = '/Volumes/share-sat/SAT/BEHR/PSM_Tests_newprofiles'
+    data_path = '/Volumes/share-sat/SAT/BEHR/PSM_Tests_newprofiles_fixed_fills'
     #save_path = '/Users/Josh/Documents/MATLAB/BEHR/Workspaces/PSM-Comparison/Tests/UpdateBranch'  # path, where you want to save your data
     save_path = os.path.dirname(__file__)
     print('Will save to', save_path)
