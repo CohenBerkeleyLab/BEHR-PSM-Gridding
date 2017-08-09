@@ -231,7 +231,7 @@ def grid_day_from_file(behr_file, grid_info, grid_method, column_product, verbos
                                    verbosity=verbosity)
 
         if vals is not None:
-            day_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
+            day_grid.values += vals * weights
             day_grid.weights += weights
 
     day_grid.norm()
@@ -289,7 +289,7 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, column_product, v
             saveh5(savename, data=data, vals=vals, weights=weights)
 
         if vals is not None:
-            day_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
+            day_grid.values += vals * weights
             day_grid.weights += weights
 
     day_grid.norm()
@@ -328,7 +328,7 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, c
                 saveh5('o-{:06d}.he5'.format(orbit_num), vals=vals, weights=weights)
 
             if vals is not None:
-                avg_grid.values += np.nan_to_num(vals) * np.nan_to_num(weights)
+                avg_grid.values += vals * weights
                 avg_grid.weights += weights
 
     avg_grid.norm()
@@ -391,33 +391,14 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', ve
     if np.all(values.mask):
         return None, None  # two outputs expected, causes a "None object not iterable" error if only one given
 
-    new_weight = weights / np.sqrt(
-        (np.abs((errors / 1e15) * (1 + 2 * data['CloudRadianceFraction'] ** 2))))  # **(1.0/2.0)
+    new_weight = weights # JLL 9 Aug 2017 - Seems unnecessary now
 
     if verbosity > 1:
         print('    Gridding VCDs')
 
     if gridding_method == 'psm':
-
-        rho_est = 4e16
-        gamma = omi.compute_smoothing_parameter(1.0, 10.0)
-        try:
-            grid = omi.psm_grid(grid,
-                                data['Longitude'], data['Latitude'],
-                                data['TiledCornerLongitude'], data['TiledCornerLatitude'],
-                                values, errors, stddev, weights, missing_values,
-                                data['SpacecraftLongitude'], data['SpacecraftLatitude'],
-                                data['SpacecraftAltitude'],
-                                gamma[data['ColumnIndices']],
-                                rho_est
-                                )
-        except QhullError as err:
-            print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
-            return None, None
-
         gamma = omi.compute_smoothing_parameter(40.0, 40.0)
-        rho_est = 4
-
+        rho_est = np.max(new_weight)*1.2
         if verbosity > 1:
             print('    Gridding weights')
 
@@ -437,11 +418,32 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', ve
             print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
             return None, None
 
+        rho_est = np.max(values)*1.2
+        gamma = omi.compute_smoothing_parameter(1.0, 10.0)
+        try:
+            grid = omi.psm_grid(grid,
+                                data['Longitude'], data['Latitude'],
+                                data['TiledCornerLongitude'], data['TiledCornerLatitude'],
+                                values, errors, stddev, weights, missing_values,
+                                data['SpacecraftLongitude'], data['SpacecraftLatitude'],
+                                data['SpacecraftAltitude'],
+                                gamma[data['ColumnIndices']],
+                                rho_est
+                                )
+        except QhullError as err:
+            print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
+            return None, None
+
         grid.norm()  # divides by the weights (at this point, the values in the grid are multiplied by the weights)
-        # Replace by the new weights later
-        # Don't normalize wgrid, if you normalize wgrid the data is not as smooth as it could be
-        wgrid_values = np.nan_to_num(np.array(wgrid.values))
-        grid_values = np.nan_to_num(np.array(grid.values))
+                     # Replace by new weights in a bit
+        wgrid.norm()  # in the new version, wgrid is also normalized.
+
+        # Clip the weights so that only positive weights are allowed. Converting things back to np.array removes any
+        # masking
+        wgrid.values = np.clip(np.array(wgrid.values), 0.01, np.max(np.array(wgrid.values)))
+
+        wgrid_values = np.array(wgrid.values)
+        grid_values = np.array(grid.values)
     elif gridding_method == 'cvm':
         try:
             grid = omi.cvm_grid(grid, data['FoV75CornerLongitude'], data['FoV75CornerLatitude'],
@@ -450,12 +452,19 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', ve
             print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
             return None, None
 
-        wgrid_values = np.nan_to_num(grid.weights)
+        wgrid_values = grid.weights
         grid.norm()
-        grid_values = np.nan_to_num(grid.values)
+        grid_values = grid.values
     else:
         raise NotImplementedError('gridding method {0} not understood'.format(gridding_method))
 
+    # At this point, grid.values is a numpy array, not a masked array. Using nan_to_num should also automatically set
+    # the value to 0, but that doesn't guarantee that the same values in weights will be made 0. So we manually multiply
+    # the weights by 0 for any invalid values in the NO2 grid. This prevents reducing the final column when we divide by
+    # the total weights outside this function.
+    good_values = ~np.ma.masked_invalid(grid_values).mask
+    grid_values = np.nan_to_num(grid_values)
+    wgrid_values = np.nan_to_num(wgrid_values) * good_values
     return grid_values, wgrid_values
 
 def imatlab_gridding(data_in, grid_in, verbosity=0):
