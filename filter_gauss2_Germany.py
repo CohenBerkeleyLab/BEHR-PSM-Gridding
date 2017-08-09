@@ -20,7 +20,7 @@ import omi
 
 #      new programm, without mask |= RootMeanSquareErrorOfFit > 0.0003, because the new product has no RootMeanSquareErrorOfFit
 
-
+import pdb
 
 
 #########################################################################
@@ -94,12 +94,7 @@ def preprocessing(Time, ColumnAmountNO2Trop,
     
     print np.nanmax(cf)
     weights = ma.array(1.0 / area, mask=mask)
-    weights = ma.array(weights/((errors/1e16)*(1.3+ 0.87*cf))**2, mask=mask)
-    #weights = np.clip(weights, np.nanmax(weights)*0.05, np.nanmax(weights)*1.2)
-    #print '...................', np.nanmin(weights), np.nanmax(weights), np.nanmean(weights), np.nanmedian(weights)
-    #new_weight = weights/((errors/1e15)*(1.3+0.87*cf))
-    #else:
-        #weights = ma.array(1.0 / (area * stddev**2), mask=mask)
+    weights = ma.array(weights/((errors/1e16)*(1.3 + 0.87*cf))**2, mask=mask)
 
     return values, errors, stddev, weights, cf
 
@@ -228,6 +223,7 @@ def Convolution1dy(Big, y_middle):
 
 
 def redo_Convolution(Big, mx, my, x_middle, y_middle):
+    pdb.set_trace()
     a = np.mean(Big)
     #print np.shape(Big)
     for i in range(mx):
@@ -241,7 +237,8 @@ def redo_Convolution(Big, mx, my, x_middle, y_middle):
         Big = Convolution1dy(Big, y_middle)
         #Big = Big[1:len(Big)-1,0:len(Big[0])]
         #print np.shape(Big)
-    
+
+    pdb.set_trace()
     Big = Big[my:len(Big)-my,mx:len(Big[0])-mx]
     return Big*(a/np.mean(Big))
 
@@ -256,7 +253,7 @@ def unpack_args(func):
             return func(*args)
     return wrapper
 
-@unpack_args
+#@unpack_args
 def main(start_date, end_date, grid_name, data_path, save_path, x_convolution_number, y_convolution_number, x_convolution_mid, y_convolution_mid):
     
     # 1. Define a grid
@@ -345,7 +342,14 @@ def main(start_date, end_date, grid_name, data_path, save_path, x_convolution_nu
                 #np.save('values.npy',values)
                 values.dump('values.npy')
                 weights.dump('weights.npy')
-                
+
+                # JLL 9 Aug 2017: for the Gaussian smoothing, it's necessary that all values being smoothed are valid.
+                # From Annette: use a value that is typical of the area in question. So I will probably look at the
+                # background average for the US to find an appropriate value here.
+                #
+                # This matters because the unmasked data is passed to the convolution, redo_Convolution(A.data, ...)
+                # Afterwards the previously masked values are remasked, so these values should only be used in the
+                # Gaussian smoothing.
                 values.data[values.data<-1e29]=1e15
                 values.data[values.data==np.nan] = 1e15
                 
@@ -374,6 +378,7 @@ def main(start_date, end_date, grid_name, data_path, save_path, x_convolution_nu
                         B0[1][1] = np.nan
                         #print B[1][1]/np.nanmean(B[0])
                         if B[1][1]/np.nanmean(B[0])>= 30:
+                            pdb.set_trace()
                             A = values[m-8:m+9,n-1:n+2]
                             amean = np.nanmean(A)
                             replace = redo_Convolution(A.data, x_convolution_number, y_convolution_number, x_convolution_mid, y_convolution_mid)
@@ -438,7 +443,7 @@ def main(start_date, end_date, grid_name, data_path, save_path, x_convolution_nu
                 
                 wgrid.values = np.clip(np.array(wgrid.values), 0.01, np.max(np.array(wgrid.values)))
                 
-                
+                pdb.set_trace()
                 mask = ~np.ma.masked_invalid(grid.values).mask
                 gridcoll.values += np.nan_to_num(grid.values)*np.nan_to_num(wgrid.values)*mask
                 gridcoll.weights += np.nan_to_num(wgrid.values)*mask
@@ -477,9 +482,9 @@ if __name__ == '__main__':
 
 
 
-    start = datetime.datetime(2005, 1, 1)    #Y/M/D
+    start = datetime.datetime(2013, 6, 1)    #Y/M/D
     #stop = datetime.datetime(2015, 11, 1)
-    stop = datetime.datetime(2017,1, 1)
+    stop = datetime.datetime(2013,6, 2)
     
     
     
@@ -487,7 +492,7 @@ if __name__ == '__main__':
     ##stop = datetime.datetime(2015, 11, 1)
     #stop = datetime.datetime(2005, 8, 2)
     
-    grid_name = 'Germany'
+    grid_name = 'Northamerica'
     #grid_name = 'Austria'
     #grid_name = 'Global'
     #grid_name = 'Germany'
@@ -495,7 +500,7 @@ if __name__ == '__main__':
     #grid_name = 'Industrial_China'
     
     #data_path = '/home/zoidberg/OMI'         # where OMI-raw- datas are saved
-    data_path = '/project/meteo/wenig/OMI'         # where OMI-raw- datas are saved
+    data_path = '/Volumes/share-sat/SAT/OMI/PSM_Links'         # where OMI-raw- datas are saved
     
     
     #save_path = '/project/meteo/wenig/OMI_new_weight/Germany' # path, where you want to save your datas
@@ -504,7 +509,7 @@ if __name__ == '__main__':
     #save_path = "/project/meteo/wenig/Versuche/Germany"
     #save_path = "/project/meteo/wenig/OMI_new_weight/new"
     #save_path = "/project/meteo/wenig/OMI_new_weight/perfect_gauss"
-    save_path = "/project/meteo/wenig/OMI_gauss/Germany"
+    save_path = "."
     
     #year = 2005
     #month = 1
@@ -526,11 +531,11 @@ if __name__ == '__main__':
     y_convolution_mid = 2
     
     #main(start, stop, grid_name, data_path, save_path, x_convolution_number, y_convolution_number, x_convolution_mid, y_convolution_mid)
-    a,b,c,d, e,f,g,h,i = generate_zip_lists(start, stop, grid_name, data_path, save_path, x_convolution_number, y_convolution_number, x_convolution_mid, y_convolution_mid)
+    #a,b,c,d, e,f,g,h,i = generate_zip_lists(start, stop, grid_name, data_path, save_path, x_convolution_number, y_convolution_number, x_convolution_mid, y_convolution_mid)
     
     
-    p.map(main, zip(a,b,c,d,e,f,g,h,i))
-    #main(start, stop, grid_name, data_path, save_path, x_convolution_number, y_convolution_number, x_convolution_mid, y_convolution_mid)
+    #p.map(main, zip(a,b,c,d,e,f,g,h,i))
+    main(start, stop, grid_name, data_path, save_path, x_convolution_number, y_convolution_number, x_convolution_mid, y_convolution_mid)
     
     
     
