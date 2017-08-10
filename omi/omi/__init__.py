@@ -574,7 +574,7 @@ def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
     for name, field in data.items():
 
         if field.ndim == 1:
-            if verbosity > 0:
+            if verbosity > 1:
                 print('  omi.remove_out_of_domain_data: {0} is a 1D variable'.format(name))
 
             if field.size == across_size:
@@ -583,7 +583,7 @@ def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
                 data[name] = field[y_slice]
 
         elif field.ndim == 2:
-            if verbosity > 0:
+            if verbosity > 1:
                 print('  omi.remove_out_of_domain_data: {0} is a 2D variable'.format(name))
 
             if field.size == across_size or field.size == along_size:
@@ -593,7 +593,7 @@ def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
                 data[name] = field[y_slice, x_slice]
 
         elif field.ndim == 3:
-            if verbosity > 0:
+            if verbosity > 1:
                 print('  omi.remove_out_of_domain_data: {0} is a 3D variable'.format(name))
 
             # find dim for across-track direction

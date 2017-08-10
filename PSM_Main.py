@@ -25,6 +25,14 @@ behr_datasets = ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
                  'CloudRadianceFraction', 'CloudPressure', 'BEHRColumnAmountNO2Trop', 'ColumnAmountNO2Trop',
                  'ColumnAmountNO2TropStd', 'BEHRAMFTrop', 'VcdQualityFlags', 'XTrackQualityFlags', 'SolarZenithAngle', 'Time']
 
+# These are fields that, if gridded, should have their value masked for pixels affected by the row anomaly
+row_anomaly_affected_fields = ['CloudFraction', 'CloudRadianceFraction', 'CloudPressure', 'ColumnAmountNO2',
+                               'SlantColumnAmountNO2', 'ColumnAmountNO2Trop', 'ColumnAmountNO2TropStd',
+                               'ColumnAmountNO2Strat', 'BEHRColumnAmountNO2Trop', 'BEHRColumnAmountNO2TropVisOnly']
+
+# These are fields that should be masked if the VcdQualityFlags field indicates a problem with the VCD algorithm
+vcd_qualtity_affected_fields = ['ColumnAmountNO2Trop', 'ColumnAmountNO2TropStd', 'ColumnAmountNO2Strat',
+                                'ColumnAmountNO2', 'BEHRColumnAmountNO2Trop', 'BEHRColumnAmountNO2TropVisOnly']
 
 def behr_version():
     """
@@ -98,8 +106,8 @@ def behr_preprocessing(gridding_method, BEHRColumnAmountNO2Trop, ColumnAmountNO2
     mask |= VcdQualityFlags % 2 != 0
     mask |= XTrackQualityFlags != 0
 
-    return preprocessing(gridding_method=gridding_method, no2_column=BEHRColumnAmountNO2Trop, no2_column_std=ColumnAmountNO2TropStd,
-                         cloud_radiance_fraction=CloudRadianceFraction, fov75_area=FoV75Area, mask=mask)
+    return preprocessing(gridding_method=gridding_method, fov75_area=FoV75Area, gridded_quantity=BEHRColumnAmountNO2Trop,
+                         gridded_quantity_std=ColumnAmountNO2TropStd, cloud_radiance_fraction=CloudRadianceFraction, mask=mask)
 
 def sp_preprocessing(gridding_method, ColumnAmountNO2Trop, ColumnAmountNO2TropStd, FoV75Area, CloudRadianceFraction,
     SolarZenithAngle, VcdQualityFlags, XTrackQualityFlags, **kwargs):
@@ -139,20 +147,37 @@ def sp_preprocessing(gridding_method, ColumnAmountNO2Trop, ColumnAmountNO2TropSt
     mask |= VcdQualityFlags % 2 != 0
     mask |= XTrackQualityFlags != 0
 
-    return preprocessing(gridding_method=gridding_method, no2_column=ColumnAmountNO2Trop, no2_column_std=ColumnAmountNO2TropStd,
-                         cloud_radiance_fraction=CloudRadianceFraction, fov75_area=FoV75Area, mask=mask)
+    return preprocessing(gridding_method=gridding_method, fov75_area=FoV75Area, gridded_quantity=ColumnAmountNO2Trop,
+                         gridded_quantity_std=ColumnAmountNO2TropStd, cloud_radiance_fraction=CloudRadianceFraction, mask=mask)
 
 
-def preprocessing(gridding_method, no2_column, no2_column_std, cloud_radiance_fraction, fov75_area, mask):
+def generic_preprocessing(gridding_method, gridded_quantity_name, gridded_quantity_values, FoV75Area, SolarZenithAngle,
+                          VcdQualityFlags, XTrackQualityFlags, **kwargs):
+    mask = gridded_quantity_values.mask
+    #mask |= SolarZenithAngle > 85
+    #if gridded_quantity_name in row_anomaly_affected_fields:
+    #    mask |= XTrackQualityFlags != 0
+    #if gridded_quantity_name in vcd_qualtity_affected_fields:
+    #    mask |= VcdQualityFlags % 2 != 0
+
+    return preprocessing(gridding_method, fov75_area=FoV75Area, gridded_quantity=gridded_quantity_values,
+                         gridded_quantity_std=None, cloud_radiance_fraction=None, mask=mask)
+
+
+
+def preprocessing(gridding_method, fov75_area, gridded_quantity, gridded_quantity_std, cloud_radiance_fraction, mask):
     """
     Subordinate preprocessing function that should be called from the specialized preprocessing function for individual
     columns. The specialized preprocessing function should create the mask to remove unwanted values (i.e. row anomaly
     or pixels with processing errors) and then pass the specified values to this function.
 
     :param gridding_method: the gridding method ('psm' or 'cvm') as a string
-    :param no2_column: the tropospheric column to grid as a numpy array
-    :param no2_column_std: the standard error of the tropospheric column as a numpy array
-    :param cloud_radiance_fraction: the cloud radiance fraction as a numpy array
+    :param gridded_quantity: the quantity to grid as a numpy array
+    :param gridded_quantity_std: the standard error of the quantity to grid as a numpy array. If None is given, will be
+        set to an array of ones the same size as gridded_quantity with the same data type and masking. This will
+        effectively make the weights in CVM gridding just the inverse of the area.
+    :param cloud_radiance_fraction: the cloud radiance fraction as a numpy array. If None is given, PSM gridding cannot
+        be used.
     :param fov75_area: the FoV75 area as a numpy array; this should have a length of 1 in the along-track dimension and
         length 60 in the across track dimension (except maybe on zoom mode days)
     :param mask: a boolean array that is true where column values should not be used (e.g. row anomaly)
@@ -165,20 +190,47 @@ def preprocessing(gridding_method, no2_column, no2_column_std, cloud_radiance_fr
                     inverse of (pixel area * std dev.**2) for CVM. For PSM the weights also depend on the errors and
                     cloud radiance fraction.
     """
+    if not isinstance(gridded_quantity, ma.core.MaskedArray):
+        raise TypeError('gridded_quantity is expected to be a Masked Array, not {}'.format(type(gridded_quantity)))
+
+    if not isinstance(fov75_area, ma.core.MaskedArray):
+        raise TypeError('fov75_area is expected to be a Masked Array, not {}'.format(type(fov75_area)))
+
+    if gridded_quantity_std is None:
+        gridded_quantity_std = np.ones_like(gridded_quantity)
+    elif not isinstance(gridded_quantity_std, ma.core.MaskedArray):
+        raise TypeError('gridded_quantity_std is expected to be a Masked Array, not {}'.format(type(gridded_quantity_std)))
 
     # set invalid cloud cover to 100% -> smallest weight
-    cloud_radiance_fraction[cloud_radiance_fraction.mask] = 1.0
+    if cloud_radiance_fraction is None:
+        pass
+    elif isinstance(cloud_radiance_fraction, ma.core.MaskedArray):
+        cloud_radiance_fraction[cloud_radiance_fraction.mask] = 1.0
+    else:
+        raise TypeError('cloud_radiance_fraction must be either None or a Masked Array, not {}'.format(type(cloud_radiance_fraction)))
 
     # VCD values and errors
-    values = ma.array(no2_column, mask=mask)
-    errors = ma.array(no2_column_std, mask=mask)
+    values = ma.array(gridded_quantity, mask=mask)
+    errors = ma.array(gridded_quantity_std, mask=mask)
 
     # weight based on stddev and pixel area (see Wenig et al. 2008)
-    stddev = 1.5e15 * (1.0 + 3.0 * ma.array(cloud_radiance_fraction, mask=mask))
+    if cloud_radiance_fraction is not None:
+        stddev = 1.5e15 * (1.0 + 3.0 * ma.array(cloud_radiance_fraction, mask=mask))
+    else:
+        stddev = gridded_quantity_std
+
     area = fov75_area.reshape((1, fov75_area.size))
-    area = area.repeat(no2_column.shape[0], axis=0)
+    area = area.repeat(gridded_quantity.shape[0], axis=0)
 
     if gridding_method.lower() == 'psm':
+        if cloud_radiance_fraction is None:
+            # Strictly speaking, you *probably* can do PSM gridding without having cloud fraction - I don't think that
+            # being able to use lower weights for cloudy pixels is necessary to make PSM work. That comes from Mark
+            # Wenig's 2008 paper showing that the uncertainty increased with cloud fraction. However, I haven't thought
+            # though how the weights should change if gridding a quantity that the uncertainty will not increase with
+            # cloud fraction. JLL 9 Aug 2017
+            raise NotImplementedError('Carrying out PSM gridding without cloud_radiance_fraction not implemented')
+
         weights = ma.array(1.0 / area, mask=mask)
         weights = ma.array(weights/((errors/1e16)*(1.3 + 0.87*cloud_radiance_fraction))**2, mask=mask)
     elif gridding_method.lower() == 'cvm':
@@ -219,16 +271,24 @@ def make_grid(grid_info):
 
 
 
-def grid_day_from_file(behr_file, grid_info, grid_method, column_product, verbosity=0):
+def grid_day_from_file(behr_file, grid_info, grid_method, preproc_method, verbosity=0):
     day_grid = make_grid(grid_info)
     day_grid.zero() # ensure that values and weights are zeroed (just in case, Annette from Mark's group seems to be
                     # concerned that grids be zeroed out, though it seems like they really should start zeroed)
 
+    if preproc_method.lower() == 'behr':
+        grid_quantity = 'BEHRColumnAmountNO2Trop'
+    elif preproc_method.lower() == 'sp':
+        grid_quantity = 'ColumnAmountNO2Trop'
+    else:
+        grid_quantity = preproc_method
+        preproc_method = 'generic'
+
     for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(behr_file, behr_datasets):
         if verbosity > 0:
             print(' Gridding orbit no. {0}'.format(orbit_num))
-        vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product,
-                                   verbosity=verbosity)
+        vals, weights = grid_orbit(data, grid_info, gridded_quantity=grid_quantity, gridding_method=grid_method,
+                                   preproc_method=preproc_method, verbosity=verbosity)
 
         if vals is not None:
             day_grid.values += vals * weights
@@ -238,7 +298,7 @@ def grid_day_from_file(behr_file, grid_info, grid_method, column_product, verbos
     return day_grid
 
 
-def grid_day_from_interface(behr_data, behr_grid, grid_method, column_product, verbosity=0):
+def grid_day_from_interface(behr_data, behr_grid, grid_method, gridded_quantity, preproc_method, verbosity=0):
     if isinstance(behr_data, dict):
         behr_data = [behr_data]
     elif isinstance(behr_data, (list, tuple)):
@@ -253,8 +313,11 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, column_product, v
     if not isinstance(grid_method, str):
         raise TypeError('grid_method must be a string')
 
-    if not isinstance(column_product, str):
-        raise TypeError('column_product must be a string')
+    if not isinstance(gridded_quantity, str):
+        raise TypeError('gridded_quantity must be a string')
+
+    if not isinstance(preproc_method, str):
+        raise TypeError('preproc_method must be a string')
 
     day_grid = make_grid(behr_grid)
     day_grid.zero()
@@ -274,8 +337,8 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, column_product, v
             print('Saving as', savename)
             saveh5(savename, data=data)
 
-        vals, weights = grid_orbit(data, behr_grid, gridding_method=grid_method, column_product=column_product,
-                                   verbosity=verbosity)
+        vals, weights = grid_orbit(data, behr_grid, gridded_quantity=gridded_quantity, gridding_method=grid_method,
+                                   preproc_method=preproc_method, verbosity=verbosity)
 
         if __save_swath__:
             lastfile = sorted(glob('idata-post_grid-*.he5'))
@@ -301,7 +364,7 @@ def save_individual_days(start_date, end_date, data_path, save_path, grid_info, 
     for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
         if verbosity > 0:
             print('Working on file {0}'.format(filename))
-        day_grid = grid_day_from_file(filename, grid_info, grid_method=grid_method, column_product=column_product,
+        day_grid = grid_day_from_file(filename, grid_info, grid_method=grid_method, preproc_method=column_product,
                                       verbosity=verbosity)
         mobj = re.search('\d\d\d\d\d\d\d\d', filename)
         behr_date = datetime.datetime.strptime(mobj.group(), '%Y%m%d')
@@ -309,9 +372,18 @@ def save_individual_days(start_date, end_date, data_path, save_path, grid_info, 
         day_grid.save_as_he5(save_name)
 
 
-def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, column_product, verbosity=0):
+def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, preproc_method, verbosity=0):
     avg_grid = make_grid(grid_info)
     avg_grid.zero()
+
+    if preproc_method.lower() == 'behr':
+        grid_quantity = 'BEHRColumnAmountNO2Trop'
+    elif preproc_method.lower() == 'sp':
+        grid_quantity = 'ColumnAmountNO2Trop'
+    else:
+        grid_quantity = preproc_method
+        preproc_method = 'generic'
+
     for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
         if verbosity > 0:
             print('Working on file {0}'.format(filename))
@@ -320,8 +392,8 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, c
             if verbosity > 0:
                 print(' Gridding orbit no. {0}'.format(orbit_num))
 
-            vals, weights = grid_orbit(data, grid_info, gridding_method=grid_method, column_product=column_product,
-                                       verbosity=verbosity)
+            vals, weights = grid_orbit(data, grid_info, gridded_quantity=grid_quantity, gridding_method=grid_method,
+                                       preproc_method=preproc_method, verbosity=verbosity)
 
             if __save_swath__:
                 saveh5('data-{:06d}.he5'.format(orbit_num), data=data)
@@ -336,16 +408,18 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, c
 
 
 def save_average(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr', verbosity=0):
-    avg = multi_day_average(start_date, end_date, data_path, grid_info, grid_method, column_product=column_product,
+    avg = multi_day_average(start_date, end_date, data_path, grid_info, grid_method, preproc_method=column_product,
                             verbosity=verbosity)
     save_name = generate_filename(save_path, grid_method, column_product, start_date, end_date)
     avg.save_as_he5(save_name)
 
 
-def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', verbosity=0):
+def grid_orbit(data, grid_info, gridded_quantity, gridding_method='psm', preproc_method='generic', verbosity=0):
     # Input checking
     if not isinstance(data, dict):
         raise TypeError('data must be a dict')
+    elif gridded_quantity not in data.keys():
+        raise KeyError('data does not have a key matching the gridded_quantity "{}"'.format(gridded_quantity))
     else:
         missing_keys = [k for k in behr_datasets if k not in data.keys()]
         if len(missing_keys) > 0:
@@ -378,13 +452,19 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', ve
     #    - estimate of stddev (used in PSM)
     #    - weight of each measurement
     if verbosity > 1:
-        print('    Doing {} preprocessing'.format(column_product))
-    if column_product.lower() == 'behr':
+        print('    Doing {} preprocessing for {}'.format(preproc_method, gridded_quantity))
+    if preproc_method.lower() == 'behr':
         values, errors, stddev, weights = behr_preprocessing(gridding_method, **data)
-    elif column_product.lower() == 'sp':
+    elif preproc_method.lower() == 'sp':
         values, errors, stddev, weights = sp_preprocessing(gridding_method, **data)
+    elif preproc_method.lower() == 'generic':
+        # I'm copying the values before passing them because I intend this to be able to called multiple times to grid
+        # different fields, and I don't want to risk values in data being altered.
+        values, errors, stddev, weights = generic_preprocessing(gridding_method, gridded_quantity,
+                                                                data[gridded_quantity].copy(), **data)
     else:
-        raise NotImplementedError('No preprocessing option for column_product={}'.format(column_product))
+        raise NotImplementedError('No preprocessing option for column_product={}'.format(gridded_quantity))
+
 
     missing_values = values.mask.copy()
 
@@ -467,7 +547,7 @@ def grid_orbit(data, grid_info, gridding_method='psm', column_product='behr', ve
     wgrid_values = np.nan_to_num(wgrid_values) * good_values
     return grid_values, wgrid_values
 
-def imatlab_gridding(data_in, grid_in, verbosity=0):
+def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='generic', gridding_method='psm', verbosity=0):
     # This is the interface function that should be called from Matlab to pass the Data structure as a list of
     # dictionaries. The conversion should happen on the Matlab side. This will verify that the required fields are
     # present in the dictionary
@@ -500,7 +580,7 @@ def imatlab_gridding(data_in, grid_in, verbosity=0):
     for name in behr_datasets:
         if name not in test_data:
             missing_fields.append(name)
-        elif type(test_data[name]) is not np.ndarray:
+        elif not isinstance(test_data[name], np.ndarray):
             s = '{0} {1}'.format(name, type(test_data[name]))
             field_type_warn.append(s)
 
@@ -525,7 +605,8 @@ def imatlab_gridding(data_in, grid_in, verbosity=0):
         print('Saving', savename)
         saveh5(savename, data=swath)
 
-    return grid_day_from_interface(data_in, grid_in, 'psm', 'behr', verbosity=verbosity)
+    return grid_day_from_interface(data_in, grid_in, gridding_method, field_to_grid, preprocessing_method,
+                                   verbosity=verbosity)
 
 def main(verbosity=0):
     start = datetime.datetime(2013, 6, 1)
