@@ -375,7 +375,7 @@ def psm_grid(grid, lon_center, lat_center, lon_corner, lat_corner,
 
 
 def cvm_grid(grid, lon_corner, lat_corner, values, errors,
-    weights, missing_values):
+    weights, missing_values, is_flag=False):
     """\
     Grid values and errors using CVM.
 
@@ -408,6 +408,11 @@ def cvm_grid(grid, lon_corner, lat_corner, values, errors,
     """
     lon_corner_grid, lat_corner_grid = geo_to_grid(grid, lon_corner, lat_corner)
 
+    if is_flag:
+        method_name = 'cvm-flags'
+    else:
+        method_name = 'cvm'
+
     grid.values = omi.cgrate.draw_orbit(
         grid.lon, grid.lat, grid.values, grid.errors, grid.weights,
         lon_corner_grid, lat_corner_grid,
@@ -415,7 +420,7 @@ def cvm_grid(grid, lon_corner, lat_corner, values, errors,
         values, errors, weights, np.array(missing_values, int),
         None, None,
         None, None, None, None,
-        'cvm'
+        method_name
     )
 
     return grid

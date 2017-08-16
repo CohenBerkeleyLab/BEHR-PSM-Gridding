@@ -34,6 +34,11 @@ row_anomaly_affected_fields = ['CloudFraction', 'CloudRadianceFraction', 'CloudP
 vcd_qualtity_affected_fields = ['ColumnAmountNO2Trop', 'ColumnAmountNO2TropStd', 'ColumnAmountNO2Strat',
                                 'ColumnAmountNO2', 'BEHRColumnAmountNO2Trop', 'BEHRColumnAmountNO2TropVisOnly']
 
+# Flag fields are fields that should be gridded using a bitwise OR operator rather than adding each value multiplied
+# by its weight. This assumes that the flag uses 1 bits to indicate the presence of an error or warning during the
+# process, so a grid cell resulting from multiple pixels should carry through any errors or warnings
+flag_fields = ['VcdQualityFlags', 'XTrackQualityFlags', 'BEHRQualityFlags']
+
 def behr_version():
     """
     Grab the BEHR version string from the MATLAB function BEHR_version.m. Assumes that this file is located in a
@@ -473,8 +478,12 @@ def grid_orbit(data, grid_info, gridded_quantity, gridding_method='psm', preproc
 
     new_weight = weights # JLL 9 Aug 2017 - Seems unnecessary now
 
+
+
     if verbosity > 1:
-        print('    Gridding VCDs')
+        print('    Gridding {}'.format(gridded_quantity))
+
+    is_flag_field = gridded_quantity in flag_fields
 
     if gridding_method == 'psm':
         gamma = omi.compute_smoothing_parameter(40.0, 40.0)
@@ -527,13 +536,16 @@ def grid_orbit(data, grid_info, gridded_quantity, gridding_method='psm', preproc
     elif gridding_method == 'cvm':
         try:
             grid = omi.cvm_grid(grid, data['FoV75CornerLongitude'], data['FoV75CornerLatitude'],
-                                values, errors, weights, missing_values)
+                                values, errors, weights, missing_values, is_flag=is_flag_field)
         except QhullError as err:
             print("Cannot interpolate, QhullError: {0}".format(err.args[0]))
             return None, None
 
-        wgrid_values = grid.weights
-        grid.norm()
+        if not is_flag_field:
+            wgrid_values = grid.weights
+            grid.norm()
+        else:
+            wgrid_values = np.ones_like(grid.values)
         grid_values = grid.values
     else:
         raise NotImplementedError('gridding method {0} not understood'.format(gridding_method))
@@ -610,8 +622,8 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
 
 def main(verbosity=0):
     start = datetime.datetime(2013, 6, 1)
-    stop = datetime.datetime(2013, 6, 2)
-    #stop = datetime.datetime(2013, 8, 31)
+    #stop = datetime.datetime(2013, 6, 2)
+    stop = datetime.datetime(2013, 8, 31)
 
     grid_info = {'llcrnrlat': 25.025, 'urcrnrlat': 50.0, 'llcrnrlon': -124.9750, 'urcrnrlon': -65.0, 'resolution': 0.05}
     #grid_info = {'llcrnrlat': 25.0, 'urcrnrlat': 50.05, 'llcrnrlon': -125.0, 'urcrnrlon': -64.95, 'resolution': 0.05}

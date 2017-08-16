@@ -25,10 +25,16 @@ if any(xx)
     E.badinput('DATA is missing the required fields: %s', strjoin(req_fields(xx), ', '));
 end
 
+% These are the fields that PSM_Main will treat as flags
+flag_fields = pylist2cell(py.PSM_Main.flag_fields);
+if ~all(ismember(flag_fields, BEHR_publishing_gridded_fields.flag_vars))
+    warning('Inconsistent definitions of flag fields in PSM_Main.py and BEHR_publishing_gridded_fields. The "flag_fields" variable in PSM_Main and "flag_vars" property of BEHR_publishing_gridded_fields should list the same variables.');
+end
+
 % These are fields that we want to include in the gridded product, beyond
 % BEHRColumnAmountNO2Trop and ColumnAmountNO2Trop (which are handled
 % automatically)
-cvm_fields = BEHR_publishing_gridded_fields.cvm_gridded_vars;
+cvm_fields = [BEHR_publishing_gridded_fields.cvm_gridded_vars, BEHR_publishing_gridded_fields.flag_vars];
 psm_fields = BEHR_publishing_gridded_fields.psm_gridded_vars;
 
 all_req_fields = unique([req_fields, cvm_fields, psm_fields]);
@@ -39,8 +45,17 @@ all_req_fields = unique([req_fields, cvm_fields, psm_fields]);
 % because that will reduce the time it takes to convert the Matlab types
 % into Python types
 fns = fieldnames(Data);
+
 % Used to check for fill values
 attributes = BEHR_publishing_attribute_table('struct');
+
+% Need to extract these fields that aren't needed for gridding now because
+% we remove them before passing to the gridding code, which expects all
+% fields to have swath dimensions.
+swaths = [Data.Swath];
+read_githeads = {Data.GitHead_Read};
+main_githeads = {Data.GitHead_Main};
+
 for a=1:numel(fns)
     if ~any(strcmp(fns{a}, all_req_fields))
         Data = rmfield(Data, fns{a});
@@ -50,20 +65,30 @@ for a=1:numel(fns)
         % basically we check if the fill values are long or short (~ -32757
         % or ~ -1e30) and reject accordingly
         if attributes.(fns{a}).fillvalue < -1e29;
-            filllim = -1e29;
+            fill_lim = -1e29;
         else
-            filllim = -32767;
+            fill_lim = -32767;
         end
         for b=1:numel(Data)
-            Data(b).(fns{a})(Data(b).(fns{a}) <= filllim) = nan;
+            % I have at least one field stored as integers
+            % (BEHRQualityFlags). Because the PSM algorithm uses Cython,
+            % which has strong typing, all fields passed to be gridded must
+            % be double precision floats.
+            Data(b).(fns{a}) = double(Data(b).(fns{a}));
+            
+            % Ensure any negative fill values are NaN'ed. Only quality flag
+            % fields should have positive fill values, and since those are
+            % gridded using a bitwise OR operation, I don't want them to be
+            % NaNs. Normally, fill values for those fields are ones that
+            % have all bits == 1, so a bitwise OR ensures the fill value
+            % propagates.
+            Data(b).(fns{a})(Data(b).(fns{a}) <= fill_lim) = nan;
         end
     end
 end
 
 OMI_PSM = make_psm_output_struct(psm_fields, cvm_fields);
 OMI_PSM = repmat(OMI_PSM, size(Data));
-%OMI_CVM = make_cvm_output_struct(cvm_fields);
-%OMI_CVM = repmat(OMI_CVM, size(Data));
 
 MODIS_Cloud_Mask = false([size(BEHR_Grid.GridLon'), numel(Data)]);
 
@@ -71,12 +96,12 @@ for a=1:numel(Data)
     if DEBUG_LEVEL > 0
         fprintf('Gridding swath %d of %d\n', a, numel(Data))
     end
-    % Will convert Data structure to a dictionary (or list of dictionaries)
-    pydata = struct2pydict(Data(a));
     
+    % Will convert Data structure to a dictionary (or list of
+    % dictionaries).
+    pydata = struct2pydict(Data(a));
+
     % Next call the PSM gridding algorithm.
-    %mod = py.importlib.import_module('BEHRDaily_Map');
-    %py.reload(mod);
     for b=1:numel(psm_fields)
         if DEBUG_LEVEL > 1
             fprintf('  Gridding %s using PSM\n', psm_fields{b});
@@ -87,10 +112,19 @@ for a=1:numel(Data)
         else
             preproc_method = 'sp';
         end
+        
+        % deepcopy() creates a new copy of the dictionary and each child
+        % object. Do this each time because Python will change this
+        % dictionary in-place, meaning if we retain it from loop to loop,
+        % we might be passing in a dictionary with the data cut down from
+        % the omi.clip_orbit function.
+        this_pydata = py.copy.deepcopy(pydata);
+        
         args = pyargs('preprocessing_method', preproc_method, 'gridding_method', 'psm', 'verbosity', DEBUG_LEVEL);
-        pgrid = py.PSM_Main.imatlab_gridding(pydata, BEHR_Grid.OmiGridInfo(), psm_fields{b}, args);
+        pgrid = py.PSM_Main.imatlab_gridding(this_pydata, BEHR_Grid.OmiGridInfo(), psm_fields{b}, args);
         OMI_PSM(a).(psm_fields{b}) = numpyarray2matarray(pgrid.values)';
-        OMI_PSM(a).(make_wts_field(psm_fields{b})) = numpyarray2matarray(pgrid.weights)';
+        wts_field = BEHR_publishing_gridded_fields.make_wts_field(psm_fields{b});
+        OMI_PSM(a).(wts_field) = numpyarray2matarray(pgrid.weights)';
     end
     
     unequal_weights = false(size(BEHR_Grid.GridLon))';
@@ -99,8 +133,9 @@ for a=1:numel(Data)
             fprintf('  Gridding %s using CVM\n', cvm_fields{b})
         end
         
+        this_pydata = py.copy.deepcopy(pydata);
         args = pyargs('preprocessing_method', 'generic', 'gridding_method', 'cvm', 'verbosity', DEBUG_LEVEL);
-        pgrid = py.PSM_Main.imatlab_gridding(pydata, BEHR_Grid.OmiGridInfo(), cvm_fields{b}, args);
+        pgrid = py.PSM_Main.imatlab_gridding(this_pydata, BEHR_Grid.OmiGridInfo(), cvm_fields{b}, args);
         OMI_PSM(a).(cvm_fields{b}) = numpyarray2matarray(pgrid.values)';
 
         if b==1
@@ -136,6 +171,12 @@ for a=1:numel(Data)
     OMI_PSM(a).Longitude = longrid;
     OMI_PSM(a).Latitude = latgrid;
     
+    % Finally, Swath is needed for publishing to generate the group name.
+    % However it doesn't need to be gridded, we just need one swath value.
+    % Same for the Git HEAD values
+    OMI_PSM(a).Swath = swaths(a);
+    OMI_PSM(a).GitHead_Read = read_githeads{a};
+    OMI_PSM(a).GitHead_Main = main_githeads{a};
 end
 
 
@@ -150,7 +191,7 @@ struct_fields(1:numel(additional_fields)) = additional_fields;
 i_field = numel(additional_fields) + 1;
 for a=1:numel(psm_fields)
     struct_fields{i_field} = psm_fields{a};
-    struct_fields{i_field+1} = make_wts_field(psm_fields{a});
+    struct_fields{i_field+1} = BEHR_publishing_gridded_fields.make_wts_field(psm_fields{a});
     i_field = i_field + 2;
 end
 
@@ -164,8 +205,4 @@ end
 
 function xx = is_element_equal_nan(A, B)
 xx = A == B | (isnan(A) & isnan(B));
-end
-
-function fn = make_wts_field(fn)
-fn = sprintf('%sWeights', fn);
 end

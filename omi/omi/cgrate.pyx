@@ -184,6 +184,7 @@ def draw_orbit(
 
     cdef int i,j,u,v
     cdef int n_swaths, n_pixels, n_cols, n_rows
+    cdef np.ndarray[np.int64_t, ndim=2] flag_values  # only used if gridding flags to receive the flag value converted to ints
 
     n_swaths = lattice_lon.shape[1]
     n_pixels = lattice_lon.shape[2]
@@ -202,6 +203,7 @@ def draw_orbit(
                     rho[j,i], weights[j,i],
                     alpha[j,i], beta[j,i]
                 )
+        return grid_values
 
     elif method == 'cvm':
         for i in xrange(n_pixels):
@@ -212,10 +214,20 @@ def draw_orbit(
                         lattice_lon[:,j,i], lattice_lat[:,j,i],
                         rho[j,i], errors[j,i], weights[j,i]
                     )
+        return grid_values
 
+    elif method == 'cvm-flags':
 
-    return grid_values
-
+        flag_values = grid_values.astype('int64')  # Flag fields must be integer types to have the bitwise OR applied to them
+        pixel_flags = rho.astype('int64')
+        for i in xrange(n_pixels):
+            for j in xrange(n_swaths):
+                draw_pixel_flags_by_cvm(
+                    flag_values, grid_lon, grid_lat,
+                    lattice_lon[:,j,i], lattice_lat[:,j,i],
+                    pixel_flags[j,i]
+                )
+        return flag_values
 
 
 
@@ -373,4 +385,27 @@ def draw_pixel_by_cvm(
                 grid_weights[u,v] += weight
 
 
+def draw_pixel_flags_by_cvm(
+        np.ndarray[np.int64_t, ndim=2] grid_values,
+        np.ndarray[np.float64_t] grid_lon,
+        np.ndarray[np.float64_t] grid_lat,
+        np.ndarray[np.float64_t] drawing_lon,
+        np.ndarray[np.float64_t] drawing_lat,
+        int flag
+    ):
+    cdef int u, v, k
+    cdef double value
+    cdef np.ndarray[np.int_t, ndim=2] boundaries
 
+    boundaries = compute_boundaries(drawing_lon, drawing_lat)
+
+    if boundaries[0].size > 10000:
+        return # FIXME: fast fix for pixels on 180E/W
+
+    for k in xrange(boundaries[0].size):
+        u = boundaries[0,k]
+
+        for v in xrange(boundaries[1,k], boundaries[2,k]+1):
+
+            if u >= 0 and u < grid_lon.size and v >= 0 and v < grid_lat.size:
+                grid_values[u,v] |= flag

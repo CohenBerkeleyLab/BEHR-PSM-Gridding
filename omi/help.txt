@@ -9,3 +9,7 @@ python setup.py install --user
 You should then be able to import the "omi" module as long
 as you are not in this directory, or probably any directory
 with a subdirectory named "omi."
+
+If you make changes to the cgrate.pyx file, you need to change
+USE_CYTHON in setup.py from False to True. This will require
+you to have Cython and a C compiler installed on your computer.
