@@ -148,9 +148,18 @@ for a=1:numel(Data)
             % weights to 0, we will create an indepedent mask that can be
             % used to remove grid cells without MODIS cloud data.
             MODIS_Cloud_Mask(:,:,a) = ~isnan(OMI_PSM(a).MODISCloud);
+        elseif ismember(cvm_fields{b}, BEHR_publishing_gridded_fields.flag_vars)
+            % do nothing, the flag fields should not have any input on the
+            % weighting at this stage.
         elseif~isequaln(numpyarray2matarray(pgrid.weights)', OMI_PSM(a).Areaweight)
+            % However, some pixels that are outside or near the edge of the
+            % domain will end up with different weights because BEHR
+            % quantities will not have a value while NASA quantities will.
+            % Since pixels without a value are masked, and so do not
+            % contribute to the areaweight, these weights can differ.
             unequal_weights = unequal_weights | ~is_element_equal_nan(OMI_PSM(a).Areaweight, numpyarray2matarray(pgrid.weights)');
-            
+            figure; pcolor(double(unequal_weights)); shading flat; caxis([0 1]);
+            title(cvm_fields{b});
         end
     end
     
