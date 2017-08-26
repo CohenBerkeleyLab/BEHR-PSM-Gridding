@@ -3,6 +3,23 @@ function [ OMI_PSM, MODIS_Cloud_Mask ] = psm_wrapper( Data, BEHR_Grid, DEBUG_LEV
 %  	[ OMI_PSM ] = PSM_WRAPPER( DATA ) Takes a "Data" structure from BEHR
 %  	and passes it to the PSM Python code, taking care to handle the
 %  	necessary type conversions between Matlab and Python types.
+%
+%   IMPORTANT NOTE: There can be a conflict between the HDF5 library built with
+%   Matlab and the one used by the Python module, h5py, which is a dependency of 
+%   the omi package used for the PSM gridding. If these two HDF libraries are
+%   different versions, Matlab will crash because the HDF library itself calls abort().
+%   The error message should tell you that you can disable this check by setting
+%   the environmental variable HDF5_DISABLE_VERSION_CHECK to one or higher.
+%   Since we are passing data directly to Python and not reading or saving to
+%   HDF files on the Python side, it should be fine to disable these warnings.
+%
+%   To do so when starting Matlab from the command line, it's a simple matter of
+%   issuing the command:
+%
+%       export HDF5_DISABLE_VERSION_CHECK=2
+%
+%   before starting Matlab.
+
 
 E = JLLErrors;
 
