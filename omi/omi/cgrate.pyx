@@ -54,6 +54,8 @@ cpdef np.ndarray[np.int_t, ndim=1] compute_line(
     cdef double slope, intercept
     cdef int i,k,l
 
+    #print 'In COMPUTE_LINE'
+
     y = np.zeros(x.size, dtype='int')
     k = start
     l = (start + step) % 4
@@ -95,6 +97,8 @@ cpdef np.ndarray[np.int_t, ndim=2] compute_boundaries(
     cdef np.ndarray[np.float64_t] x
     cdef np.ndarray[np.int_t, ndim=2] boundaries
 
+    #print 'In COMPUTE_BOUNDARIES'
+
     start = np.argmin(lon)
     end = np.argmax(lon)
 
@@ -128,6 +132,8 @@ def draw_pixel_by_psm(
     cdef double value
     cdef np.ndarray[np.float64_t] sides
     cdef np.ndarray[np.int_t, ndim=2] boundaries
+
+    #print 'In DRAW_PIXEL_BY_PSM'
 
     boundaries = compute_boundaries(drawing_lon, drawing_lat)
 
@@ -186,6 +192,8 @@ def draw_orbit(
     cdef int n_swaths, n_pixels, n_cols, n_rows
     cdef np.ndarray[np.int64_t, ndim=2] flag_values  # only used if gridding flags to receive the flag value converted to ints
 
+    #print 'In DRAW_ORBIT'
+
     n_swaths = lattice_lon.shape[1]
     n_pixels = lattice_lon.shape[2]
     n_cols = grid_values.shape[0]
@@ -237,6 +245,8 @@ cpdef pixel_side_lengths(np.ndarray[np.float64_t] lon, np.ndarray[np.float64_t] 
     """
     cdef np.ndarray[np.float64_t] sides
 
+    #print 'In PIXEL_SIDE_LENGTHS'
+
     sides = np.empty(4)
 
     # compute: ab, bc, cd, da
@@ -254,6 +264,8 @@ cpdef triangle_altitude(double a, double b, double c):
     Compute altitude at point C of triangle with side length a,b,c.
     """
     cdef double a2, b2, c2
+
+    #print 'In TRIANGLE_ALTITUDE'
 
     if a+b <= c:
         return 0.0
@@ -282,6 +294,8 @@ cpdef compute_coordinates(double clon, double clat,
     cdef double a,b,c, s, t
     cdef double s_left, s_right, t_up, t_low
     cdef np.ndarray[np.float64_t] coords
+
+    #print 'In COMPUTE_COORDINATES'
 
     coords = np.empty(2)
 
@@ -314,6 +328,8 @@ cpdef geo_distance(double lon0, double lat0, double lon1, double lat1):
     cdef double cd,sd,cf,sf,cs,ss
     cdef double RADIUS, DEG2RAD
 
+    #print 'In GEO_DISTANCE'
+
     RADIUS = 6371.0
     DEG2RAD = 0.017453292519943295
 
@@ -342,6 +358,8 @@ cpdef psm_formula(double s, double t, double p00, double p10, double p01, double
     """
     cdef double f
 
+    #print 'In PSM_FORMULA'
+
     f =  (1-s) * (1-t) * (1 - 3*s - 3*t + 9*s*t) * p00
     f += s*(1-t) * (-2 + 3*s + 6*t - 9*s*t) * p10
     f += (1-s) * t * (-2 + 6*s + 3*t - 9*s*t) * p01
@@ -368,6 +386,8 @@ def draw_pixel_by_cvm(
     cdef int u, v, k
     cdef double value
     cdef np.ndarray[np.int_t, ndim=2] boundaries
+
+    #print 'In DRAW_PIXEL_BY_CVM'
 
     boundaries = compute_boundaries(drawing_lon, drawing_lat)
 
@@ -396,6 +416,8 @@ def draw_pixel_flags_by_cvm(
     cdef int u, v, k
     cdef double value
     cdef np.ndarray[np.int_t, ndim=2] boundaries
+
+    #print 'In DRAW_PIXEL_FLAGS_BY_CVM'
 
     boundaries = compute_boundaries(drawing_lon, drawing_lat)
 

@@ -27,7 +27,6 @@ import warnings
 import numpy as np
 import scipy.interpolate
 
-import omi.he5
 import omi.pixel
 import omi.psm
 
@@ -104,20 +103,6 @@ class Grid(object):
         # in cgrate when the lon vector (in this case) was longer than the shape in the longitudinal direction, since
         # the values had the wrong shape.
         return self._shape
-
-
-    def save_as_he5(self, filename):
-        """\
-        Save Grid to `filename` as HDF5 file.
-        """
-        data = [
-            ('lon', self.lon),
-            ('lat', self.lat),
-            ('values', self.values),
-            ('errors', self.errors),
-            ('weights', self.weights)
-        ]
-        omi.he5.write_datasets(filename, data)
 
 
     def save_as_image(self, filename, vmin=None, vmax=None):

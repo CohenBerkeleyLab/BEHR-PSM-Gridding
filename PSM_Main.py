@@ -14,7 +14,6 @@ import omi
 
 __author__ = 'Josh'
 __verbosity__ = 1
-__save_swath__ = False  # debugging only, remove the clauses controlled by that when you're done
 
 # Define the datasets that need to be loaded from BEHR files
 behr_datasets = ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
@@ -274,33 +273,6 @@ def make_grid(grid_info):
 
 
 
-def grid_day_from_file(behr_file, grid_info, grid_method, preproc_method, verbosity=0):
-    day_grid = make_grid(grid_info)
-    day_grid.zero() # ensure that values and weights are zeroed (just in case, Annette from Mark's group seems to be
-                    # concerned that grids be zeroed out, though it seems like they really should start zeroed)
-
-    if preproc_method.lower() == 'behr':
-        grid_quantity = 'BEHRColumnAmountNO2Trop'
-    elif preproc_method.lower() == 'sp':
-        grid_quantity = 'ColumnAmountNO2Trop'
-    else:
-        grid_quantity = preproc_method
-        preproc_method = 'generic'
-
-    for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(behr_file, behr_datasets):
-        if verbosity > 0:
-            print(' Gridding orbit no. {0}'.format(orbit_num))
-        vals, weights = grid_orbit(data, grid_info, gridded_quantity=grid_quantity, gridding_method=grid_method,
-                                   preproc_method=preproc_method, verbosity=verbosity)
-
-        if vals is not None:
-            day_grid.values += vals * weights
-            day_grid.weights += weights
-
-    day_grid.norm()
-    return day_grid
-
-
 def grid_day_from_interface(behr_data, behr_grid, grid_method, gridded_quantity, preproc_method, verbosity=0):
     if isinstance(behr_data, dict):
         behr_data = [behr_data]
@@ -329,28 +301,8 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, gridded_quantity,
         if verbosity > 0:
             print('Gridding swath {} of {}'.format(behr_data.index(data)+1, len(behr_data)))
 
-        if __save_swath__:
-            lastfile = sorted(glob('idata-pre_grid-*.he5'))
-            if len(lastfile) > 0:
-                lastfile = lastfile[-1]
-                i_swath = int(re.search('\d\d', lastfile).group())
-            else:
-                i_swath = 0
-            savename = 'idata-pre_grid-{:02d}.he5'.format(i_swath+1)
-            print('Saving as', savename)
-
         vals, weights = grid_orbit(data, behr_grid, gridded_quantity=gridded_quantity, gridding_method=grid_method,
                                    preproc_method=preproc_method, verbosity=verbosity)
-
-        if __save_swath__:
-            lastfile = sorted(glob('idata-post_grid-*.he5'))
-            if len(lastfile) > 0:
-                lastfile = lastfile[-1]
-                i_swath = int(re.search('\d\d', lastfile).group())
-            else:
-                i_swath = 0
-            savename = 'idata-post_grid-{:02d}.he5'.format(i_swath+1)
-            print('Saving as', savename)
 
         if vals is not None:
             day_grid.values += vals * weights
@@ -358,50 +310,6 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, gridded_quantity,
 
     day_grid.norm()
     return day_grid
-
-
-def save_individual_days(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr',
-                         verbosity=0):
-    for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
-        if verbosity > 0:
-            print('Working on file {0}'.format(filename))
-        day_grid = grid_day_from_file(filename, grid_info, grid_method=grid_method, preproc_method=column_product,
-                                      verbosity=verbosity)
-        mobj = re.search('\d\d\d\d\d\d\d\d', filename)
-        behr_date = datetime.datetime.strptime(mobj.group(), '%Y%m%d')
-        save_name = generate_filename(save_path, grid_method, column_product, behr_date)
-        day_grid.save_as_he5(save_name)
-
-
-def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, preproc_method, verbosity=0):
-    avg_grid = make_grid(grid_info)
-    avg_grid.zero()
-
-    if preproc_method.lower() == 'behr':
-        grid_quantity = 'BEHRColumnAmountNO2Trop'
-    elif preproc_method.lower() == 'sp':
-        grid_quantity = 'ColumnAmountNO2Trop'
-    else:
-        grid_quantity = preproc_method
-        preproc_method = 'generic'
-
-    for filename in omi.he5.iter_behr_filenames(start_date, end_date, data_path):
-        if verbosity > 0:
-            print('Working on file {0}'.format(filename))
-
-        for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(filename, behr_datasets):
-            if verbosity > 0:
-                print(' Gridding orbit no. {0}'.format(orbit_num))
-
-            vals, weights = grid_orbit(data, grid_info, gridded_quantity=grid_quantity, gridding_method=grid_method,
-                                       preproc_method=preproc_method, verbosity=verbosity)
-
-            if vals is not None:
-                avg_grid.values += vals * weights
-                avg_grid.weights += weights
-
-    avg_grid.norm()
-    return avg_grid
 
 
 def save_average(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr', verbosity=0):
@@ -567,13 +475,6 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
     else:
         raise TypeError('data_in must be a dict or a list/tuple of dicts')
 
-    if __save_swath__:
-        lastfile = sorted(glob('data-imatlab_gridding-pre_mask-*.he5'))
-        if len(lastfile) > 0:
-            lastfile = lastfile[-1]
-            i_swath = int(re.search('\d\d', lastfile).group())
-        else:
-            i_swath = 0
 
     # Validate the fields present
     missing_fields = []
@@ -595,13 +496,6 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
         for k, v in swath.items():
             swath[k] = np.ma.masked_invalid(v)
 
-    if __save_swath__:
-        lastfile = sorted(glob('data-imatlab_gridding-post_mask-*.he5'))
-        if len(lastfile) > 0:
-            lastfile = lastfile[-1]
-            i_swath = int(re.search('\d\d', lastfile).group())
-        else:
-            i_swath = 0
 
     return grid_day_from_interface(data_in, grid_in, gridding_method, field_to_grid, preprocessing_method,
                                    verbosity=verbosity)
