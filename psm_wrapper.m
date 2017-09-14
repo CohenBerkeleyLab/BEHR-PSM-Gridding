@@ -1,8 +1,24 @@
-function [ OMI_PSM, MODIS_Cloud_Mask ] = psm_wrapper( Data, BEHR_Grid, DEBUG_LEVEL )
+function [ OMI_PSM, MODIS_Cloud_Mask ] = psm_wrapper( Data, BEHR_Grid, varargin )
 %PSM_WRAPPER Matlab routine that serves as an interface to the Python PSM code
-%  	[ OMI_PSM ] = PSM_WRAPPER( DATA ) Takes a "Data" structure from BEHR
-%  	and passes it to the PSM Python code, taking care to handle the
-%  	necessary type conversions between Matlab and Python types.
+%  	[ OMI_PSM, MODIS_Cloud_Mask ] = PSM_WRAPPER( DATA, GRID ) Takes a
+%  	"Data" structure from BEHR and passes it to the PSM Python code, taking
+%  	care to handle the necessary type conversions between Matlab and Python
+%  	types. GRID must be an instance of GlobeGrid, which defines the grid
+%  	that the data should be placed on. Returns OMI_PSM, a structure that
+%  	contains the fields specified to be gridded in
+%  	BEHR_publishing_gridded_fields, and MODIS_Cloud_Mask, which is a
+%  	logical matrix true where there is valid MODIS cloud data.
+%
+%   There are also two parameters:
+%       'only_cvm' - when false (default), CVM gridding will be used for
+%       fields specified in BEHR_publishing_gridded_fields.cvm_gridded_vars
+%       field, while PSM gridding will be used for those fields specified
+%       in BEHR_publishing_gridded_fields.psm_gridded_vars. When true,
+%       fields specified in psm_gridded_vars will be gridded using CVM
+%       instead.
+%       
+%       'DEBUG_LEVEL' - controls level of output (default is 2, 0 is none).
+%       Is passed to PSM_Main.py's imatlab_gridding method as 'verbosity'.
 %
 %   IMPORTANT NOTE: There can be a conflict between the HDF5 library built with
 %   Matlab and the one used by the Python module, h5py, which is a dependency of 
@@ -23,8 +39,22 @@ function [ OMI_PSM, MODIS_Cloud_Mask ] = psm_wrapper( Data, BEHR_Grid, DEBUG_LEV
 
 E = JLLErrors;
 
-if ~exist('DEBUG_LEVEL', 'var')
-    DEBUG_LEVEL = 0;
+p = inputParser;
+
+p.addParameter('only_cvm', false);
+p.addParameter('DEBUG_LEVEL', 2);
+
+p.parse(varargin{:});
+pout = p.Results;
+
+only_cvm = pout.only_cvm;
+DEBUG_LEVEL = pout.DEBUG_LEVEL;
+
+if ~isscalar(only_cvm) || (~islogical(only_cvm) && ~isnumeric(only_cvm))
+    E.badinput('''only_cvm'' must be a scalar logical or numeric value')
+end
+if ~isscalar(DEBUG_LEVEL) || ~isnumeric(DEBUG_LEVEL)
+    E.badinput('''DEBUG_LEVEL'' must be a scalar numeric value')
 end
 
 % Add the directory containing the PSM code to the Python search path if it
@@ -50,9 +80,14 @@ end
 
 % These are fields that we want to include in the gridded product, beyond
 % BEHRColumnAmountNO2Trop and ColumnAmountNO2Trop (which are handled
-% automatically)
+% automatically). If the ONLY_CVM flag is set, all fields will be gridded
+% by CVM.
 cvm_fields = [BEHR_publishing_gridded_fields.cvm_gridded_vars, BEHR_publishing_gridded_fields.flag_vars];
 psm_fields = BEHR_publishing_gridded_fields.psm_gridded_vars;
+if only_cvm
+    cvm_fields = [psm_fields, cvm_fields];
+    psm_fields = {};
+end
 
 all_req_fields = unique([req_fields, cvm_fields, psm_fields]);
 % We should remove the fields that are not required by the algorithm,
@@ -175,8 +210,8 @@ for a=1:numel(Data)
             % Since pixels without a value are masked, and so do not
             % contribute to the areaweight, these weights can differ.
             unequal_weights = unequal_weights | ~is_element_equal_nan(OMI_PSM(a).Areaweight, numpyarray2matarray(pgrid.weights)');
-            figure; pcolor(double(unequal_weights)); shading flat; caxis([0 1]);
-            title(cvm_fields{b});
+%            figure; pcolor(double(unequal_weights)); shading flat; caxis([0 1]);
+%            title(cvm_fields{b});
         end
     end
     
