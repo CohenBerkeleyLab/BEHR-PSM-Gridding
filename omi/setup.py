@@ -13,10 +13,10 @@ import numpy
 
 
 # build extension with CYTHON?
-USE_CYTHON = True
+USE_CYTHON = False
 
 ext = '.pyx' if USE_CYTHON else '.c'
-extensions = [Extension("omi.cgrate", ["omi/cgrate"+ext], extra_compile_args=['-g', '-debug', 'all'])]
+extensions = [Extension("omi.cgrate", ["omi/cgrate"+ext])]
 
 if USE_CYTHON:
     from Cython.Build import cythonize
