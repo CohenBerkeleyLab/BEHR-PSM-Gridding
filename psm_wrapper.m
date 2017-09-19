@@ -88,8 +88,14 @@ attributes = BEHR_publishing_attribute_table('struct');
 % we remove them before passing to the gridding code, which expects all
 % fields to have swath dimensions.
 swaths = [Data.Swath];
-read_githeads = {Data.GitHead_Read};
-main_githeads = {Data.GitHead_Main};
+data_dates = {Data.Date};
+read_githeads.core = {Data.GitHead_Core_Read};
+read_githeads.behr_utils = {Data.GitHead_BEHRUtils_Read};
+read_githeads.gen_utils = {Data.GitHead_GenUtils_Read};
+
+main_githeads.core = {Data.GitHead_Core_Main};
+main_githeads.behr_utils = {Data.GitHead_BEHRUtils_Main};
+main_githeads.gen_utils = {Data.GitHead_GenUtils_Main};
 
 for a=1:numel(fns)
     if ~any(strcmp(fns{a}, all_req_fields))
@@ -219,8 +225,15 @@ for a=1:numel(Data)
     % However it doesn't need to be gridded, we just need one swath value.
     % Same for the Git HEAD values
     OMI_PSM(a).Swath = swaths(a);
-    OMI_PSM(a).GitHead_Read = read_githeads{a};
-    OMI_PSM(a).GitHead_Main = main_githeads{a};
+    OMI_PSM(a).Date = data_dates{a};
+    
+    OMI_PSM(a).GitHead_Core_Read = read_githeads.core{a};
+    OMI_PSM(a).GitHead_BEHRUtils_Read = read_githeads.behr_utils{a};
+    OMI_PSM(a).GitHead_GenUtils_Read = read_githeads.gen_utils{a};
+    
+    OMI_PSM(a).GitHead_Core_Main = main_githeads.core{a};
+    OMI_PSM(a).GitHead_BEHRUtils_Main = main_githeads.behr_utils{a};
+    OMI_PSM(a).GitHead_GenUtils_Main = main_githeads.gen_utils{a};
 end
 
 
