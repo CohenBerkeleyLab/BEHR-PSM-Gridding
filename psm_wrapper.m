@@ -105,8 +105,10 @@ attributes = BEHR_publishing_attribute_table('struct');
 % we remove them before passing to the gridding code, which expects all
 % fields to have swath dimensions.
 swaths = [Data.Swath];
-read_githeads = {Data.GitHead_Read};
-main_githeads = {Data.GitHead_Main};
+swath_attr_fields = BEHR_publishing_gridded_fields.swath_attr_vars;
+for a=1:numel(swath_attr_fields)
+    swath_attrs.(swath_attr_fields{a}) = {Data.(swath_attr_fields{a})};
+end
 
 for a=1:numel(fns)
     if ~any(strcmp(fns{a}, all_req_fields))
@@ -236,8 +238,11 @@ for a=1:numel(Data)
     % However it doesn't need to be gridded, we just need one swath value.
     % Same for the Git HEAD values
     OMI_PSM(a).Swath = swaths(a);
-    OMI_PSM(a).GitHead_Read = read_githeads{a};
-    OMI_PSM(a).GitHead_Main = main_githeads{a};
+    OMI_PSM(a).Only_CVM = only_cvm;
+
+    for b=1:numel(swath_attr_fields)
+        OMI_PSM(a).(swath_attr_fields{b}) = swath_attrs.(swath_attr_fields{b}){a};
+    end
 end
 
 
