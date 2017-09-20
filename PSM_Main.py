@@ -9,8 +9,6 @@ import pdb
 import re
 from scipy.spatial.qhull import QhullError
 
-from ospy.hdf5 import saveh5 # debugging only
-
 # This must be built and installed from the omi subdirectory. See omi/help.txt for instructions.
 import omi
 
@@ -340,7 +338,6 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, gridded_quantity,
                 i_swath = 0
             savename = 'idata-pre_grid-{:02d}.he5'.format(i_swath+1)
             print('Saving as', savename)
-            saveh5(savename, data=data)
 
         vals, weights = grid_orbit(data, behr_grid, gridded_quantity=gridded_quantity, gridding_method=grid_method,
                                    preproc_method=preproc_method, verbosity=verbosity)
@@ -354,7 +351,6 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, gridded_quantity,
                 i_swath = 0
             savename = 'idata-post_grid-{:02d}.he5'.format(i_swath+1)
             print('Saving as', savename)
-            saveh5(savename, data=data, vals=vals, weights=weights)
 
         if vals is not None:
             day_grid.values += vals * weights
@@ -399,10 +395,6 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, p
 
             vals, weights = grid_orbit(data, grid_info, gridded_quantity=grid_quantity, gridding_method=grid_method,
                                        preproc_method=preproc_method, verbosity=verbosity)
-
-            if __save_swath__:
-                saveh5('data-{:06d}.he5'.format(orbit_num), data=data)
-                saveh5('o-{:06d}.he5'.format(orbit_num), vals=vals, weights=weights)
 
             if vals is not None:
                 avg_grid.values += vals * weights
@@ -582,9 +574,6 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
             i_swath = int(re.search('\d\d', lastfile).group())
         else:
             i_swath = 0
-        savename = 'data-imatlab_gridding-pre_mask-{:02d}.he5'.format(i_swath+1)
-        print('Saving', savename)
-        saveh5(savename, data=data_in[0])
 
     # Validate the fields present
     missing_fields = []
@@ -613,9 +602,6 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
             i_swath = int(re.search('\d\d', lastfile).group())
         else:
             i_swath = 0
-        savename = 'data-imatlab_gridding-post_mask-{:02d}.he5'.format(i_swath+1)
-        print('Saving', savename)
-        saveh5(savename, data=swath)
 
     return grid_day_from_interface(data_in, grid_in, gridding_method, field_to_grid, preprocessing_method,
                                    verbosity=verbosity)
