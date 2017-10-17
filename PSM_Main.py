@@ -17,11 +17,14 @@ __verbosity__ = 1
 __save_swath__ = False  # debugging only, remove the clauses controlled by that when you're done
 
 # Define the datasets that need to be loaded from BEHR files
-behr_datasets = ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
+req_datasets = ['TiledArea', 'TiledCornerLatitude', 'TiledCornerLongitude',
                  'FoV75Area', 'FoV75CornerLatitude', 'FoV75CornerLongitude',
-                 'Latitude', 'Longitude', 'SpacecraftAltitude', 'SpacecraftLatitude', 'SpacecraftLongitude',
                  'CloudRadianceFraction', 'CloudPressure', 'BEHRColumnAmountNO2Trop', 'ColumnAmountNO2Trop',
-                 'ColumnAmountNO2TropStd', 'BEHRAMFTrop', 'VcdQualityFlags', 'XTrackQualityFlags', 'SolarZenithAngle', 'Time']
+                 'ColumnAmountNO2TropStd', 'BEHRAMFTrop', 'VcdQualityFlags', 'XTrackQualityFlags', 'SolarZenithAngle', 'Time',
+                 'Latitude', 'Longitude']
+
+# Define additional datasets required by the PSM gridding algorithm but not the CVM one
+psm_req_datasets = ['SpacecraftAltitude', 'SpacecraftLatitude', 'SpacecraftLongitude']
 
 # These are fields that, if gridded, should have their value masked for pixels affected by the row anomaly
 row_anomaly_affected_fields = ['CloudFraction', 'CloudRadianceFraction', 'CloudPressure', 'ColumnAmountNO2',
@@ -36,6 +39,13 @@ vcd_qualtity_affected_fields = ['ColumnAmountNO2Trop', 'ColumnAmountNO2TropStd',
 # by its weight. This assumes that the flag uses 1 bits to indicate the presence of an error or warning during the
 # process, so a grid cell resulting from multiple pixels should carry through any errors or warnings
 flag_fields = ['VcdQualityFlags', 'XTrackQualityFlags', 'BEHRQualityFlags']
+
+def behr_datasets(gridding_method='psm'):
+    # Return the list of datasets required depending on the gridding method chosen.
+    if gridding_method == 'psm':
+        return req_datasets + psm_req_datasets
+    else:
+        return req_datasets
 
 def behr_version():
     """
@@ -287,7 +297,7 @@ def grid_day_from_file(behr_file, grid_info, grid_method, preproc_method, verbos
         grid_quantity = preproc_method
         preproc_method = 'generic'
 
-    for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(behr_file, behr_datasets):
+    for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(behr_file, behr_datasets(grid_method)):
         if verbosity > 0:
             print(' Gridding orbit no. {0}'.format(orbit_num))
         vals, weights = grid_orbit(data, grid_info, gridded_quantity=grid_quantity, gridding_method=grid_method,
@@ -389,7 +399,7 @@ def multi_day_average(start_date, end_date, data_path, grid_info, grid_method, p
         if verbosity > 0:
             print('Working on file {0}'.format(filename))
 
-        for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(filename, behr_datasets):
+        for _, orbit_num, data in omi.he5.iter_behr_orbits_in_file(filename, behr_datasets(grid_method)):
             if verbosity > 0:
                 print(' Gridding orbit no. {0}'.format(orbit_num))
 
@@ -418,7 +428,7 @@ def grid_orbit(data, grid_info, gridded_quantity, gridding_method='psm', preproc
     elif gridded_quantity not in data.keys():
         raise KeyError('data does not have a key matching the gridded_quantity "{}"'.format(gridded_quantity))
     else:
-        missing_keys = [k for k in behr_datasets if k not in data.keys()]
+        missing_keys = [k for k in behr_datasets(gridding_method) if k not in data.keys()]
         if len(missing_keys) > 0:
             raise KeyError('data is missing the following expected keys: {0}'.format(', '.join(missing_keys)))
 
@@ -578,7 +588,7 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
     # Validate the fields present
     missing_fields = []
     field_type_warn = []
-    for name in behr_datasets:
+    for name in behr_datasets(gridding_method):
         if name not in test_data:
             missing_fields.append(name)
         elif not isinstance(test_data[name], np.ndarray):
