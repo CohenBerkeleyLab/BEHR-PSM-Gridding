@@ -64,8 +64,12 @@ if count(py.sys.path, psm_dir) == 0
     insert(py.sys.path, int32(0), psm_dir);
 end
 
-% These are the fields required by the PSM algorithm. 
-req_fields = pylist2cell(py.PSM_Main.behr_datasets);
+% These are the fields required by the PSM algorithm.
+if only_cvm
+    req_fields = pylist2cell(py.PSM_Main.behr_datasets('cvm'));
+else
+    req_fields = pylist2cell(py.PSM_Main.behr_datasets('psm'));
+end
 
 xx = ~isfield(Data, req_fields);   
 if any(xx)
