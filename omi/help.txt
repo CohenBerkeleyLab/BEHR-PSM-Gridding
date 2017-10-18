@@ -13,3 +13,12 @@ with a subdirectory named "omi."
 If you make changes to the cgrate.pyx file, you need to change
 USE_CYTHON in setup.py from False to True. This will require
 you to have Cython and a C compiler installed on your computer.
+
+For users compiling on the UC Berkeley Savio cluster: I find that
+I must compile this with the following modules loaded:
+
+1) python/2.7.8       2) numpy/1.9.0        3) scipy/0.14.0       4)setuptools/6.0.2
+5) gcc/4.4.7          6) lapack/3.4.2-gcc   7) git/2.2.2
+
+(+h5py if not on the no-he5 branch, +cython if compiling from the pyx rather
+than c file). If I have intel compilers/modules loaded, the compilation fails.
