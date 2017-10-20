@@ -592,14 +592,9 @@ def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
             except ValueError:
                 raise IndexError('3d field "{0}" has no x-track axis ({1} columns)'.format(name, across_size))
 
-            # do the same for the along-track direction
-            try:
-                along = field.shape.index(along_size)
-            except ValueError:
-                raise IndexError('3d field "{0}" has no along-track axis ({1} columns)'.format(name, along_size))
 
             # We assume that it is ordered [along, across, other] or [other, along, across], check that assumption
-            if along != across - 1:
+            if field.shape[across - 1] != along_size:
                 raise IndexError('3d field "{0}" does not have the across-track dimension follow the along track one'
                                  .format(name))
 
@@ -610,7 +605,7 @@ def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
                 data[name] = field[:,y_slice, x_slice]
 
             else:
-                raise ValueError
+                raise NotImplementedError('Do not know how to clip a variable with the across dimension == {}'.format(across))
 
         else:
             raise NotImplementedError('Do not know how to clip a {0} dimension variable'.format(field.ndim))
