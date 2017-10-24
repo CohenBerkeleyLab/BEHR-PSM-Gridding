@@ -591,21 +591,35 @@ def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
             if verbosity > 1:
                 print('  omi.remove_out_of_domain_data: {0} is a 2D variable'.format(name))
 
-            if field.size == across_size or field.size == along_size:
-                raise RuntimeError('{0} size equals across or along track dimensions, this suggests it is actually a '
-                                   '1D variable that has a singleton dimensions.'.format(name))
-            else:
-                data[name] = field[y_slice, x_slice]
+            if (field.size == across_size or field.size == along_size):
+                if along_size > 1:
+                    raise RuntimeError('{0} size equals across or along track dimensions, this suggests it is actually a '
+                                       '1D variable that has a singleton dimensions.'.format(name))
+                else:
+                    print('    omi.remove_out_of_domain_data: Size of 2D variable {0} equals along or across track dimensions. Since the along track'
+                                  ' dimension is 1, this is likely okay, unless {0} is supposed to be a 1D variable'.format(name))
+
+            data[name] = field[y_slice, x_slice]
 
         elif field.ndim == 3:
             if verbosity > 1:
                 print('  omi.remove_out_of_domain_data: {0} is a 3D variable'.format(name))
 
             # find dim for across-track direction
-            try:
-                across = field.shape.index(across_size)
-            except ValueError:
-                raise IndexError('3d field "{0}" has no x-track axis ({1} columns)'.format(name, across_size))
+            if across_size == along_size:
+                # If the along size is the same as the across size, we have to be more careful because index() always
+                # returns the first instance of a value in a list. Since we assume that across track always follows
+                # along track, find the second occurance of that size.
+                tmp_inds = [i for i in range(len(field.shape)) if field.shape[i] == across_size]
+                if len(tmp_inds) < 2:
+                    raise IndexError('3d field "{0}" was expected to have the along and across track lengths the same, but I only found one dimension of that length'.format(name))
+                else:
+                    across = tmp_inds[1]
+            else:
+                try:
+                    across = field.shape.index(across_size)
+                except ValueError:
+                    raise IndexError('3d field "{0}" has no x-track axis ({1} columns)'.format(name, across_size))
 
 
             # We assume that it is ordered [along, across, other] or [other, along, across], check that assumption
@@ -623,7 +637,7 @@ def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
                 raise NotImplementedError('Do not know how to clip a variable with the across dimension == {}'.format(across))
 
         else:
-            raise NotImplementedError('Do not know how to clip a {0} dimension variable'.format(field.ndim))
+            raise NotImplementedError('Do not know how to clip a {0} dimension variable ({1})'.format(field.ndim, name))
 
     return data, domain, col_indices
 
