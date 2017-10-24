@@ -591,11 +591,15 @@ def remove_out_of_domain_data(data, domain, boundary, across_size, along_size):
             if verbosity > 1:
                 print('  omi.remove_out_of_domain_data: {0} is a 2D variable'.format(name))
 
-            if field.size == across_size or field.size == along_size:
-                raise RuntimeError('{0} size equals across or along track dimensions, this suggests it is actually a '
-                                   '1D variable that has a singleton dimensions.'.format(name))
-            else:
-                data[name] = field[y_slice, x_slice]
+            if (field.size == across_size or field.size == along_size):
+                if along_size > 1:
+                    raise RuntimeError('{0} size equals across or along track dimensions, this suggests it is actually a '
+                                       '1D variable that has a singleton dimensions.'.format(name))
+                else:
+                    print('    omi.remove_out_of_domain_data: Size of 2D variable {0} equals along or across track dimensions. Since the along track'
+                                  ' dimension is 1, this is likely okay, unless {0} is supposed to be a 1D variable'.format(name))
+
+            data[name] = field[y_slice, x_slice]
 
         elif field.ndim == 3:
             if verbosity > 1:
