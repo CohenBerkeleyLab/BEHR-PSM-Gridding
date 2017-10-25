@@ -35,6 +35,13 @@ function [ OMI_PSM, MODIS_Cloud_Mask ] = psm_wrapper( Data, BEHR_Grid, varargin 
 %       export HDF5_DISABLE_VERSION_CHECK=2
 %
 %   before starting Matlab.
+%
+%   ANOTHER NOTE: If the call to PSM_Main is failing on some call to a
+%   cgrate module function, trying deleting cgrate.c and recompiling the
+%   omi package through Matlab (using BEHR_initial_setup). That fixed this
+%   problem on a call to omi.cgrate.draw_orbit() for me, likely because,
+%   when called from the terminal, a different include path was used for
+%   numpy.   
 
 
 E = JLLErrors;
@@ -94,6 +101,7 @@ if only_cvm
 end
 
 all_req_fields = unique([req_fields, cvm_fields, psm_fields]);
+
 % We should remove the fields that are not required by the algorithm,
 % becuase the PSM algorithm makes some assumptions about the fields
 % present, which messes up the "clip_orbit" function (mainly the fields
@@ -157,7 +165,7 @@ for a=1:numel(Data)
     
     % Will convert Data structure to a dictionary (or list of
     % dictionaries).
-    pydata = struct2pydict(Data(a));
+    pydata = struct2pydict(Data(a), 'array1', 'always');
 
     % Next call the PSM gridding algorithm.
     for b=1:numel(psm_fields)

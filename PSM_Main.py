@@ -30,6 +30,26 @@ row_anomaly_affected_fields = ['CloudFraction', 'CloudRadianceFraction', 'CloudP
                                'SlantColumnAmountNO2', 'ColumnAmountNO2Trop', 'ColumnAmountNO2TropStd',
                                'ColumnAmountNO2Strat', 'BEHRColumnAmountNO2Trop', 'BEHRColumnAmountNO2TropVisOnly']
 
+# These are fields that should be 1D because they have only the
+# along or across track dimension (not both). We use this cell array during
+# the conversion from Matlab arrays to Python Numpy arrays to represent
+# this properly. This only matters in the rare case where only a single
+# line of data is retained in an orbit (i.e. Longitude would be 1x60).
+# This is important in two places in the gridding algorithm:
+#   1) in generic_preprocessing, the area is replicated to be the same
+#   shape as the quantity being gridded. If the gridded quantity is 1D,
+#   this ends up making the area too big, because it uses the quantity
+#   across track dimension as its along track dimension (since the along
+#   track dimension doesn't exist)
+#   2) in remove_out_of_domain_data (in omi.__init__) how it cuts down data
+#   depends on if the data is 1, 2, or 3 dimensional. Therefore, it's
+#   important to keep the actually 1D variables 1D so that it doesn't try
+#   to use along and across track slicing on a 1D variable. (We could have
+#   modified remove_out_of_domain_data to check if a 2D variable has a
+#   length 1 dimension, but this way keeps the representation of 1D data on
+#   the Python side consistent.)
+one_d_fields = ['SpacecraftAltitude', 'SpacecraftLatitude', 'SpacecraftLongitude', 'Time', 'TiledArea', 'FoV75Area']
+
 # These are fields that should be masked if the VcdQualityFlags field indicates a problem with the VCD algorithm
 vcd_qualtity_affected_fields = ['ColumnAmountNO2Trop', 'ColumnAmountNO2TropStd', 'ColumnAmountNO2Strat',
                                 'ColumnAmountNO2', 'BEHRColumnAmountNO2Trop', 'BEHRColumnAmountNO2TropVisOnly']
@@ -322,13 +342,6 @@ def grid_day_from_interface(behr_data, behr_grid, grid_method, gridded_quantity,
     return day_grid
 
 
-def save_average(start_date, end_date, data_path, save_path, grid_info, grid_method, column_product='behr', verbosity=0):
-    avg = multi_day_average(start_date, end_date, data_path, grid_info, grid_method, preproc_method=column_product,
-                            verbosity=verbosity)
-    save_name = generate_filename(save_path, grid_method, column_product, start_date, end_date)
-    avg.save_as_he5(save_name)
-
-
 def grid_orbit(data, grid_info, gridded_quantity, gridding_method='psm', preproc_method='generic', verbosity=0):
     # Input checking
     if not isinstance(data, dict):
@@ -339,11 +352,6 @@ def grid_orbit(data, grid_info, gridded_quantity, gridding_method='psm', preproc
         missing_keys = [k for k in behr_datasets(gridding_method) if k not in data.keys()]
         if len(missing_keys) > 0:
             raise KeyError('data is missing the following expected keys: {0}'.format(', '.join(missing_keys)))
-
-    # Ensure 1D datasets are actually 1D by removing any singleton dimensions that Matlab adds because it treats any
-    # array as at least 2D.
-    for k, v in data.iteritems():
-        data[k] = v.squeeze()
 
     grid = make_grid(grid_info)
     wgrid = make_grid(grid_info)
@@ -485,7 +493,6 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
     else:
         raise TypeError('data_in must be a dict or a list/tuple of dicts')
 
-
     # Validate the fields present
     missing_fields = []
     field_type_warn = []
@@ -504,13 +511,23 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
 
     for swath in data_in:
         for k, v in swath.items():
+            if k in one_d_fields:
+                if v.ndim == 1:
+                    continue
+                    
+                if verbosity > 2:
+                    print('Squeezing field {} to 1D'.format(k))
+                v = v.squeeze()
+                # This is a kludge to avoid squeezing completely down to a 0D array since that breaks omi.remove_out_of_domain_data
+                if v.ndim == 0:
+                    v = v.reshape(1)
             swath[k] = np.ma.masked_invalid(v)
-
 
     return grid_day_from_interface(data_in, grid_in, gridding_method, field_to_grid, preprocessing_method,
                                    verbosity=verbosity)
 
 def main(verbosity=0):
+    raise RuntimeError('Cannot run PSM_Main as primary program on the no-he5 branch')
     start = datetime.datetime(2013, 6, 1)
     #stop = datetime.datetime(2013, 6, 2)
     stop = datetime.datetime(2013, 8, 31)
@@ -527,7 +544,7 @@ def main(verbosity=0):
     print('Will save to', save_path)
 
     #save_individual_days(start, stop, data_path, save_path, grid_info, grid_method, column_product=product, verbosity=verbosity)
-    save_average(start, stop, data_path, save_path, grid_info, grid_method, column_product=product, verbosity=verbosity)
+    #save_average(start, stop, data_path, save_path, grid_info, grid_method, column_product=product, verbosity=verbosity)
 
 if __name__ == '__main__':
     omi.verbosity = __verbosity__ - 1
