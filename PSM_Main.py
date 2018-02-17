@@ -274,6 +274,29 @@ def preprocessing(gridding_method, fov75_area, gridded_quantity, gridded_quantit
     return values, errors, stddev, weights
 
 
+def simple_preprocessing(values, errors, weights):
+    """
+    Preprocessing function for the simple interface to the CVM gridding code
+    :param values: the values that will be gridded, as a regular numpy array
+    :param errors: the errors for the values, as a regular numpy array
+    :param weights: the weights for the values, as a regular numpy array
+    :return: values, errors, weights as masked arrays with the same elements masked in all three, plus the mask itself
+     The arrays will be masked by numpy.ma.masked_invalid
+    """
+
+    values = ma.masked_invalid(values)
+    errors = ma.masked_invalid(errors)
+    weights = ma.masked_invalid(weights)
+
+    mask = values.mask | errors.mask | weights.mask
+
+    values.mask = mask
+    errors.mask = mask
+    weights.mask = mask
+
+    return values, errors, weights, mask
+
+
 def generate_filename(save_path, gridding_method, column_product, date_in, date_end=None):
     if date_end is None:
         fname = 'OMI_{3}_{2}_{0}_{1}.he5'.format(behr_version(),
@@ -624,6 +647,38 @@ def imatlab_gridding(data_in, grid_in, field_to_grid, preprocessing_method='gene
 
     return grid_day_from_interface(data_in, grid_in, gridding_method, field_to_grid, preprocessing_method,
                                    verbosity=verbosity)
+
+
+def igridding_simple(grid_info, loncorn, latcorn, vals, errors=None, weights=None, is_flag=False):
+    """
+    Interface method that applies CVM gridding to a simple set of data defined in 2D numpy arrays
+    :param grid_info: a dictionary that can be given to omi.Grid as omi.Grid(**grid_info)
+    :param loncorn: the longitude corner coordinates of the data to grid as a 3D numpy array; assumes that the corners
+     are given along the first dimension, i.e. loncorn[:,i,j] is the slice with the corner coordinates for pixel i, j
+    :param latcorn: the latitude corner coordinate of the data to grid as a 3D numpy array; same format as loncorn.
+    :param vals: the values to grid as a 2D numpy array
+    :return: a 2D numpy array with the values gridded to the lon/lat coordinates defined in grid and a 2D numpy array
+    with the weighting values
+    """
+
+    if errors is None:
+        errors = np.zeros_like(vals)
+    if weights is None:
+        weights = np.ones_like(vals)
+
+    vals, errors, weights, mask = simple_preprocessing(vals, errors, weights)
+
+    grid_in = omi.Grid(**grid_info)
+
+    grid = omi.cvm_grid(grid_in, loncorn, latcorn, vals, errors, weights, mask, is_flag=is_flag)
+
+    # For now, unlike the normal gridding method, we will retain NaNs in the gridded values and weights
+    grid_weights = grid.weights
+    grid.norm()
+    grid_values = grid.values
+
+    return grid_values, grid_weights
+
 
 def main(verbosity=0):
     start = datetime.datetime(2013, 6, 1)
