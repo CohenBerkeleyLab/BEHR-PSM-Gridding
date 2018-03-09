@@ -119,7 +119,9 @@ attributes = BEHR_publishing_attribute_table('struct');
 swaths = [Data.Swath];
 swath_attr_fields = BEHR_publishing_gridded_fields.swath_attr_vars;
 for a=1:numel(swath_attr_fields)
-    swath_attrs.(swath_attr_fields{a}) = {Data.(swath_attr_fields{a})};
+    if isfield(Data, swath_attr_fields{a})
+        swath_attrs.(swath_attr_fields{a}) = {Data.(swath_attr_fields{a})};
+    end
 end
 
 for a=1:numel(fns)
@@ -169,7 +171,12 @@ for a=1:numel(Data)
 
     % Next call the PSM gridding algorithm.
     for b=1:numel(psm_fields)
-        if DEBUG_LEVEL > 1
+        if ~isfield(Data, psm_fields{b})
+            if DEBUG_LEVEL > 0
+                fprintf('  Skipping gridding %s with PSM because it is not present in Data\n', psm_fields{b});
+            end
+            continue
+        elseif DEBUG_LEVEL > 1
             fprintf('  Gridding %s using PSM\n', psm_fields{b});
         end
         
@@ -195,7 +202,12 @@ for a=1:numel(Data)
     
     unequal_weights = false(size(BEHR_Grid.GridLon))';
     for b=1:numel(cvm_fields)
-        if DEBUG_LEVEL > 1
+        if ~isfield(Data, cvm_fields{b})
+            if DEBUG_LEVEL > 0
+                fprintf('  Skipping gridding %s with CVM because it is not present in Data\n', cvm_fields{b});
+            end
+            continue
+        elseif DEBUG_LEVEL > 1
             fprintf('  Gridding %s using CVM\n', cvm_fields{b})
         end
         
@@ -253,7 +265,9 @@ for a=1:numel(Data)
     OMI_PSM(a).Only_CVM = only_cvm;
 
     for b=1:numel(swath_attr_fields)
-        OMI_PSM(a).(swath_attr_fields{b}) = swath_attrs.(swath_attr_fields{b}){a};
+        if isfield(swath_attrs, swath_attr_fields{b})
+            OMI_PSM(a).(swath_attr_fields{b}) = swath_attrs.(swath_attr_fields{b}){a};
+        end
     end
 end
 
