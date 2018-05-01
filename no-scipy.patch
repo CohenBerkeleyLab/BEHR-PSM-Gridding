@@ -1,0 +1,57 @@
+# This file should apply the necessary changes to remove all imports of the
+# scipy package for the code used to do CVM gridding. If Matlab and Scipy use
+# different versions of their backend Fortran library, calling Scipy-containing
+# code from Matlab will fail, usually by pretending that it cannot find your
+# Python code (i.e. the "py or py.PSM_Main does not exist" error message).
+#
+# Because the PSM gridding is not used as of BEHR v3.0B (only the CVM gridding),
+# removing the Scipy dependency does not affect anything. However, given that the
+# PSM gridding algorithm is central to this codebase, it does not make sense to 
+# create a third branch that removes the Scipy dependency, as the he5 dependency
+# was removed in the no-he5 branch. So, if you encounter issues with calling 
+# PSM_Main from Matlab, apply this patch with
+#
+#       git apply no-scipy.patch
+#
+# but please do not commit these changes to any of the main branches (master, no-he5,
+# or develop)
+#
+diff --git a/PSM_Main.py b/PSM_Main.py
+index e5b07c0..2e42bf5 100644
+--- a/PSM_Main.py
++++ b/PSM_Main.py
+@@ -7,7 +7,7 @@ import numpy.ma as ma
+ import os
+ import pdb
+ import re
+-from scipy.spatial.qhull import QhullError
++#from scipy.spatial.qhull import QhullError
+ 
+ # This must be built and installed from the omi subdirectory. See omi/help.txt for instructions.
+ import omi
+diff --git a/omi/omi/__init__.py b/omi/omi/__init__.py
+index 5974143..67ce44d 100755
+--- a/omi/omi/__init__.py
++++ b/omi/omi/__init__.py
+@@ -25,10 +25,10 @@ import os
+ import warnings
+ 
+ import numpy as np
+-import scipy.interpolate
++#import scipy.interpolate
+ 
+ import omi.pixel
+-import omi.psm
++#import omi.psm
+ 
+ #import pyximport; pyximport.install()
+ import omi.cgrate
+@@ -37,6 +37,8 @@ PACKAGE_DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
+ 
+ verbosity = 0
+ 
++print('Importing omi.__init__.py')
++
+ class Grid(object):
+     def __init__(self, llcrnrlat, urcrnrlat, llcrnrlon, urcrnrlon,
+         resolution):
