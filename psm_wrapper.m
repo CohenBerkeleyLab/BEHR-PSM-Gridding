@@ -49,12 +49,14 @@ E = JLLErrors;
 p = inputParser;
 
 p.addParameter('only_cvm', false);
+p.addParameter('extra_cvm_fields',{});
 p.addParameter('DEBUG_LEVEL', 2);
 
 p.parse(varargin{:});
 pout = p.Results;
 
 only_cvm = pout.only_cvm;
+extra_cvm_fields = pout.extra_cvm_fields;
 DEBUG_LEVEL = pout.DEBUG_LEVEL;
 
 if ~isscalar(only_cvm) || (~islogical(only_cvm) && ~isnumeric(only_cvm))
@@ -99,6 +101,9 @@ if only_cvm
     cvm_fields = [psm_fields, cvm_fields];
     psm_fields = {};
 end
+
+% Add any extra fields that the user requested
+cvm_fields = unique(veccat(cvm_fields, extra_cvm_fields),'stable');
 
 all_req_fields = unique([req_fields, cvm_fields, psm_fields]);
 
@@ -246,7 +251,11 @@ for a=1:numel(Data)
     % value, often because the a priori profiles don't extend far enough.
     % To get around that, I'm just setting the weights for those grid cells
     % to 0. That avoids having to create a unique weight field for every
-    % CVM field.
+    % CVM field. This may also happen in cases where BEHRAMFTrop is valid
+    % but BEHRAMFTropVisOnly is not, which can happen if cldPres < tropPres
+    % and cloud fraction == 1. That is also okay to set to 0 because we
+    % need to skip that value in the average since the weight would need to
+    % be different for the two column products.
     OMI_PSM(a).Areaweight(unequal_weights) = 0;
     OMI_PSM(a).Areaweight(isnan(OMI_PSM(a).Areaweight)) = 0;
     
