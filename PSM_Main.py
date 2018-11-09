@@ -567,16 +567,31 @@ def igridding_simple(grid_info, loncorn, latcorn, vals, errors=None, weights=Non
     if weights is None:
         weights = np.ones_like(vals)
 
-    vals, errors, weights, mask = simple_preprocessing(vals, errors, weights)
+    if vals.ndim == 3:
+        print('Doing 3D gridding')
+        n_levels = vals.shape[2]
+        for i_lev in range(n_levels):
+            grid_val_i, grid_wt_i = igridding_simple(grid_info, loncorn, latcorn, vals[:, :, i_lev],
+                                                     errors=errors[:, :, i_lev], weights=weights[:, :, i_lev],
+                                                     is_flag=is_flag)
+            if i_lev == 0:
+                grid_values = np.full(grid_val_i.shape + (n_levels,), np.nan, dtype=grid_val_i.dtype)
+                grid_weights = np.full(grid_wt_i.shape + (n_levels,), np.nan, dtype=grid_val_i.dtype)
 
-    grid_in = omi.Grid(**grid_info)
+            grid_values[:, :, i_lev] = grid_val_i
+            grid_weights[:, :, i_lev] = grid_wt_i
+    else:
 
-    grid = omi.cvm_grid(grid_in, loncorn, latcorn, vals, errors, weights, mask, is_flag=is_flag)
+        vals, errors, weights, mask = simple_preprocessing(vals, errors, weights)
 
-    # For now, unlike the normal gridding method, we will retain NaNs in the gridded values and weights
-    grid_weights = grid.weights
-    grid.norm()
-    grid_values = grid.values
+        grid_in = omi.Grid(**grid_info)
+
+        grid = omi.cvm_grid(grid_in, loncorn, latcorn, vals, errors, weights, mask, is_flag=is_flag)
+
+        # For now, unlike the normal gridding method, we will retain NaNs in the gridded values and weights
+        grid_weights = grid.weights
+        grid.norm()
+        grid_values = grid.values
 
     return grid_values, grid_weights
 
