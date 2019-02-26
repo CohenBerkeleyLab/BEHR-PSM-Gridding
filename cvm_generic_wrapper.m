@@ -50,10 +50,14 @@ py_values = make_nd(py_values, 2);
 % not positive how to create a Python None on the Matlab side
 keyword_args = {'is_flag', is_flag};
 if ~isempty(errors)
-    keyword_args = [keyword_args, {'errors', errors}];
+    py_errors = matarray2numpyarray(errors);
+    py_errors = make_nd(py_errors, 2);
+    keyword_args = [keyword_args, {'errors', py_errors}];
 end
 if ~isempty(weights)
-    keyword_args = [keyword_args, {'weights', weights}];
+    py_weights = matarray2numpyarray(weights);
+    py_weights = make_nd(py_weights, 2);
+    keyword_args = [keyword_args, {'weights', py_weights}];
 end
 
 % Call the CVM gridding function
@@ -66,9 +70,11 @@ end
 function val = make_nd(val, n)
 % Ensure that the numpy array VAL is at least N dimensions
 if val.ndim < n
-    sz = double(cell2mat(cell(val.shape)));
-    final_sz = ones(1,n);
+    sz = cell2mat(python2matlab(val.shape));
+    final_sz = ones(1,n,'like',sz);
     final_sz(1:numel(sz)) = sz;
+    % reshape requires integers (at least with Python 3) so
+    % we kept final_sz the same type as the original shape
     val = val.reshape(final_sz);
 end
 end
