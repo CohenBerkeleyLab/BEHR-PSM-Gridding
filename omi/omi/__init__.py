@@ -25,10 +25,10 @@ import os
 import warnings
 
 import numpy as np
-import scipy.interpolate
+#import scipy.interpolate
 
 import omi.pixel
-import omi.psm
+#import omi.psm
 
 #import pyximport; pyximport.install()
 import omi.cgrate
@@ -36,6 +36,8 @@ import omi.cgrate
 PACKAGE_DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
 
 verbosity = 0
+
+print('Importing omi.__init__.py')
 
 class Grid(object):
     def __init__(self, llcrnrlat, urcrnrlat, llcrnrlon, urcrnrlon,

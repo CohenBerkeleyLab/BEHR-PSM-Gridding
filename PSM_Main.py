@@ -7,7 +7,7 @@ import numpy.ma as ma
 import os
 import pdb
 import re
-from scipy.spatial.qhull import QhullError
+#from scipy.spatial.qhull import QhullError
 
 # This must be built and installed from the omi subdirectory. See omi/help.txt for instructions.
 import omi
